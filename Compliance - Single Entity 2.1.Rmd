@@ -1,0 +1,1498 @@
+---
+title: "Transparency Compliance 2.1 - Single Entity"
+author: "Michael Jensen"
+date: "July 2018"
+output: html_notebook
+---
+# Program Description
+
+For the active and participating entity that OSA will monitor for Transparency compliance, report the fiscal periods for which the entity has not complied with the following reporting requirements and does not have a permanent reporting exemption:
+
+* One processed expense transaction per fiscal quarter.
+* One processed revenue transaction per fiscal quarter.
+* One processed W-2 employee compensation file per fiscal year.
+
+# Program
+
+## Inputs, Packages, & Data Connections
+
+The only user inputs required for this program are the the entity's Transparency ID, the DSN names to Salesforce and AWS, and, if this not the first Compliance Report of the enforcement cycle, the date of the initial report.
+
+```{r}
+entity_transparency_id <- 1251
+dsn_sf                 <- "Salesforce"
+dsn_aws                <- "transpAWS"
+```
+
+**Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.**
+
+```{r}
+initial_report_date <- paste0("'", "8/1/2018", "'")
+```
+
+```{r}
+library(lubridate)
+library(magrittr)
+library(odbc)
+library(splitstackshape)
+library(tidyverse)
+
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+
+rm(dsn_sf, dsn_aws)
+```
+
+## Functions
+
+### AWS Queries
+
+#### query_batch_ids
+
+```{r}
+query_batch_ids <- function(transparency_id) {
+  # Arguments: 
+  # - transparency_id: The entity's Transparency ID, as imported from Salesforce.
+
+  # Returns:
+  # - A numeric vector containing the IDs of each processed or processing batch 
+  #   the entity has uploaded to Transparency.
+  # - If the entity does not have a Transparency ID, then an empty vector.
+  
+  if (!is.na(transparency_id)) {
+    odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT id
+              FROM batch
+              WHERE entity_id = ", transparency_id, "
+              AND status IN ('PROCESSED', 'PROCESSING')")) %>% 
+      .[["id"]] %>% 
+      as.double() %>% 
+      as.vector()
+  } else if (is.na(transparency_id)) {
+    vector(mode = "double", length = 0)
+  }
+}
+```
+
+#### query_last_processed_batch
+
+```{r}
+query_last_processed_batch <- function(transparency_id) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID, as imported from Salesforce.
+  
+  # Returns:
+  # - If present, the date of the most recently processed batch.
+  # - If the entity has never had a batch processed, "1900-01-01."
+  
+  if (!is.na(transparency_id)) {
+    processed_batch <- 
+      odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT DATE_FORMAT(processed_date, '%Y-%m-%d')
+              FROM batch
+              WHERE entity_id = ", transparency_id, "
+              ORDER BY processed_date DESC
+              LIMIT 1"))
+
+    if (nrow(processed_batch) == 0) {
+      processed_batch <- NA
+    }
+    
+    if (!is.na(processed_batch[[1]])) {
+      processed_batch[[1]]
+    } else if (is.na(processed_batch[[1]])) {
+      "1900-01-01"
+    }
+    
+  } else if (is.na(transparency_id)) {
+    "1900-01-01"
+  }
+}
+```
+
+#### query_last_uploaded_batch
+
+```{r}
+query_last_uploaded_batch <- function(transparency_id) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID, as imported from Salesforce.
+  
+  # Returns:
+  # - If present, the date of the most recently uploaded batch.
+  # - If the entity has never uploaded a batch, "1900-01-01."
+  
+  if (!is.na(transparency_id)) {
+    uploaded_batch <- 
+      odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT DATE_FORMAT(upload_date, '%Y-%m-%d') AS last_uploaded_batch
+              FROM batch
+              WHERE entity_id = ", transparency_id, "
+              ORDER BY upload_date DESC
+              LIMIT 1"))
+    
+    if (nrow(uploaded_batch) == 0) {
+      uploaded_batch <- NA
+    }
+    
+    if (!is.na(uploaded_batch[[1]])) {
+      uploaded_batch[[1]]
+    } else if (is.na(uploaded_batch[[1]])) {
+      "1900-01-01"
+    }
+    
+  } else if (is.na(transparency_id)) {
+    "1900-01-01"
+  }
+}
+```
+
+#### query_reported_exp_or_rev
+
+```{r}
+query_reported_exp_or_rev <- function(batch_id, current_fy_begin, transaction_type) {
+  # Arguments:
+  # - batch_id: The batch IDs for each processed or processing batch a local 
+  #   government has uploaded to Transparency.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - transaction_type: Set to 1 for expense transactions and 2 for revenue 
+  #   transactions.
+
+  # Returns:
+  # - A numeric vector containing the posting_dates for which the entity has 
+  #   reported expense or revenue transactions to Transparency.
+  
+  if (month(current_fy_begin) == 1) {
+    odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT DISTINCT posting_date
+              FROM transaction
+              WHERE batch_id = ", batch_id, "
+              AND type = ", transaction_type, "
+              AND fiscal_year > 2013
+              AND YEAR(posting_date) = fiscal_year")) %>% 
+      .[["posting_date"]]
+  } else if (month(current_fy_begin) != 1) {
+    odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT DISTINCT posting_date
+              FROM transaction
+              WHERE batch_id = ", batch_id, "
+              AND type = ", transaction_type, "
+              AND fiscal_year > 2013
+              AND (YEAR(posting_date) = fiscal_year
+              OR YEAR(posting_date) + 1 = fiscal_year)")) %>% 
+      .[["posting_date"]]
+  }
+}
+```
+
+#### query_reported_w2
+
+```{r}
+query_reported_w2 <- function(batch_id) {
+  # Arguments:
+  # - batch_id: The batch IDs for each processed or processing batch a local 
+  #   government has uploaded to Transparency.
+
+  # Returns:
+  # - A numeric vector containing the fiscal years for which the entity has 
+  #   reported W-2 employee compensation information to Transparency.
+  
+  odbc_aws %>% 
+    dbGetQuery(
+      paste("
+            SELECT DISTINCT fiscal_year
+            FROM transaction
+            WHERE batch_id = ", batch_id, "
+            AND type = 3")) %>% 
+    .[["fiscal_year"]] %>% 
+    as.double() %>% 
+    as.vector()
+}
+```
+
+#### query_uploaded_batches
+
+```{r}
+query_uploaded_batches <- function(transparency_id) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID, as imported from Salesforce.
+
+  # Returns:
+  # - 1 if the entity has a batch with a status of "UPLOADED."
+  # - 0 if the entity does not have a batch with a status of "UPLOADED" or if 
+  #   the entity does not have a Transparency ID.
+
+  if (!is.na(transparency_id)){
+    upload_in_queue <- 
+      odbc_aws %>% 
+      dbGetQuery(
+        paste("
+              SELECT COUNT(*)
+              FROM batch
+              WHERE entity_id = ", transparency_id, "
+              AND status IN ('UPLOADED')")) %>% 
+      .[["COUNT(*)"]] %>% 
+      as.double() %>% 
+      as.vector()
+    
+    if (upload_in_queue[[1]] > 0) {
+      1
+    } else if (upload_in_queue[[1]] == 0) {
+      0
+    }
+    
+  } else if (is.na(transparency_id)) {
+    0
+  }
+}
+```
+
+#### report_reported_exp_or_rev
+
+```{r}
+report_reported_exp_or_rev <- function(transparency_id, current_fy_begin, transaction_type) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID, as imported from 
+  #   Salesforce.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - transaction_type: Set to 1 for expense transactions and 2 for revenue 
+  #   transactions. 
+  
+  # Returns:
+  # - A numeric vector of the fiscal years and fiscal quarters (e.g., "2018.1") 
+  #   for which the entity has reported at least one expense or revenue 
+  #   transaction, as specified.
+  
+  !is.na(current_fy_begin) ||
+    stop("report_reported_exp_or_rev() must not be applied to NA current_fy_begin values.",
+         call. = FALSE)
+  
+  batch_ids <- query_batch_ids(transparency_id)
+  
+  if (length(batch_ids) > 0) {
+    map(batch_ids, 
+        query_reported_exp_or_rev, 
+        current_fy_begin, 
+        transaction_type) %>% 
+      combine() %>% 
+      map_dbl(convert_to_fy_and_qtr, current_fy_begin) %>% 
+      unique()
+    
+  } else if (length(batch_ids) == 0) {
+    vector(mode = "double", length = 0)
+  }
+}
+```
+
+#### report_reported_w2
+
+```{r}
+report_reported_w2 <- function(transparency_id) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID, as imported from 
+  #   Salesforce.
+  
+  # Returns:
+  # - A numeric vector containing the fiscal years for which the entity has 
+  #   reported at least one W-2 employee compensation file.
+  
+  batch_ids <- query_batch_ids(transparency_id)
+  
+  if (length(batch_ids) > 0) {
+    map(batch_ids, query_reported_w2) %>% 
+      combine()
+    
+  } else if (length(batch_ids) == 0) {
+    vector(mode = "double", length = 0)
+  }
+}
+```
+
+### Conversions
+
+#### convert_to_calendar_year_and_qtr
+
+```{r}
+convert_to_calendar_year_and_qtr <- function(current_fy_begin, yyyy.q) {
+  # Arguments:
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # -yyyy.q: The fiscal year and fiscal quarter (e.g., "2018.1"), as a numeric 
+  #  class object.
+
+  # Returns:
+  # - The calendar year and month range of yyyy.q (e.g., "2018 JAN-MAR").
+  
+  cy <-
+    if ((month(current_fy_begin) == 1) |
+      (month(current_fy_begin) == 4 & (str_detect(yyyy.q, "\\.4"))) | 
+      (month(current_fy_begin) == 5 & (str_detect(yyyy.q, "\\.4"))) | 
+      (month(current_fy_begin) == 6 & (str_detect(yyyy.q, "\\.4"))) |
+      (month(current_fy_begin) == 7 & (str_detect(yyyy.q, "\\.3")   | 
+                                       str_detect(yyyy.q, "\\.4"))) |
+      (month(current_fy_begin) == 8 & (str_detect(yyyy.q, "\\.3")   | 
+                                       str_detect(yyyy.q, "\\.4"))) |
+      (month(current_fy_begin) == 9 & (str_detect(yyyy.q, "\\.3")   | 
+                                       str_detect(yyyy.q, "\\.4"))) |
+      (month(current_fy_begin) == 10 & (!str_detect(yyyy.q, "\\.1"))) |
+      (month(current_fy_begin) == 11 & (!str_detect(yyyy.q, "\\.1"))) |
+      (month(current_fy_begin) == 12 & (!str_detect(yyyy.q, "\\.1")))) {
+    round(yyyy.q)
+  } else if ((month(current_fy_begin) == 2) |
+             (month(current_fy_begin) == 3) | 
+             (month(current_fy_begin) == 4 & (!str_detect(yyyy.q, "\\.4"))) | 
+             (month(current_fy_begin) == 5 & (!str_detect(yyyy.q, "\\.4"))) | 
+             (month(current_fy_begin) == 6 & (!str_detect(yyyy.q, "\\.4"))) |
+             (month(current_fy_begin) == 7 & (str_detect(yyyy.q, "\\.1")    |
+                                              str_detect(yyyy.q, "\\.2")))  |
+             (month(current_fy_begin) == 8 & (str_detect(yyyy.q, "\\.1")    | 
+                                              str_detect(yyyy.q, "\\.2")))  |
+             (month(current_fy_begin) == 9 & (str_detect(yyyy.q, "\\.1")    | 
+                                              str_detect(yyyy.q, "\\.2")))  |
+             (month(current_fy_begin) == 10 & (str_detect(yyyy.q, "\\.1"))) |
+             (month(current_fy_begin) == 11 & (str_detect(yyyy.q, "\\.1"))) |
+             (month(current_fy_begin) == 12 & (str_detect(yyyy.q, "\\.1")))) {
+    round(yyyy.q) - 1
+  }
+  
+  qtrs        <- c("\\.1", "\\.2", "\\.3", "\\.4")
+  first_month <- c(     0,      3,      6,     9)
+  last_month  <- c(     2,      5,      8,    11)
+  
+  qtr <- 
+    paste0(
+      (current_fy_begin + months(first_month[str_detect(yyyy.q, qtrs)])) %>% 
+        month(label = TRUE) %>% 
+        toupper(),
+      "-",
+      (current_fy_begin + months(last_month[str_detect(yyyy.q, qtrs)])) %>% 
+        month(label = TRUE) %>% 
+        toupper())
+  
+  paste(cy, qtr)
+}
+```
+#### convert_to_fy_and_qtr
+
+```{r}
+convert_to_fy_and_qtr <- function(calendar_date, current_fy_begin) {
+  # Arguments:
+  # - calendar_date: The calendar date to convert to yyyy.q format.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+
+  # Returns:
+  # - The fiscal year and fiscal quarter of calendar_date (in the format of  
+  #   "2018.1").
+  
+  !is.na(calendar_date) ||
+    stop("convert_to_fy_and_qtr() must not be applied to NA calendar_date values.", 
+         call. = FALSE)
+  
+  !is.na(current_fy_begin) ||
+    stop("convert_to_fy_and_qtr() must not be applied to NA current_fy_begin values.", 
+         call. = FALSE)
+  
+  if (month(current_fy_begin) == 1) {
+    calendar_date %>% 
+      quarter(with_year = TRUE) %>% 
+      as.numeric()
+  } else if (month(current_fy_begin) != 1) {
+    if (month(calendar_date) < month(current_fy_begin)) {
+      year(calendar_date) %>% 
+        paste0(
+          ".",
+          quarter(calendar_date, fiscal_start = month(current_fy_begin))) %>% 
+        as.numeric()
+    } else if (month(calendar_date) >= month(current_fy_begin)) {
+      year(calendar_date) + 1 %>% 
+        paste0(
+          ".",
+          quarter(calendar_date, fiscal_start = month(current_fy_begin))) %>% 
+        as.numeric()
+    }
+  }
+}
+```
+#### update_old_fiscal_years
+
+```{r}
+update_old_fiscal_years <- function(fiscal_year_begin) {
+  # Arguments:
+  # - fiscal_year_begin: The start date of the entity's fiscal year.
+
+  # Returns:
+  # - The start date of the entity's current fiscal year.
+  
+  if (!is.na(fiscal_year_begin)) {
+    !(fiscal_year_begin > today()) ||
+    stop("update_old_fiscal_years() must not be applied to future dates.",
+         call. = FALSE)
+    
+    fiscal_year_span <- 
+      fiscal_year_begin %>% 
+      interval((fiscal_year_begin + months(12)) - 1) 
+  
+    if (!today() %within% fiscal_year_span) {
+      if ((month(fiscal_year_begin) == 1) ||
+          (month(fiscal_year_begin) != 1 & 
+           month(fiscal_year_begin) <= month(today()))) {
+        
+        distance <- year(today()) - year(fiscal_year_begin) 
+        
+      } else if (month(fiscal_year_begin) != 1 & 
+                 month(fiscal_year_begin) > month(today())) {
+        
+        distance <- (year(today()) - year(fiscal_year_begin)) - 1
+      }
+      
+      fiscal_year_begin + months(12 * distance)
+      
+    } else if (today() %within% fiscal_year_span == TRUE) {
+      fiscal_year_begin
+    }
+  } else if (is.na(fiscal_year_begin)) {
+    NA
+  }
+}
+```
+
+### Ending Report Dates
+
+#### find_end_exp_rev_date
+      
+```{r}
+find_end_exp_rev_date <- function(current_fy_begin) {
+  # Arguments:
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+
+  # Returns:
+  # - The ending date of the most recent fiscal quarter for which the entity 
+  #   have reported expense and revenue transactions.
+  
+  # Comments:
+  # - Transparency Board policy requires participating entities to report expense 
+  #   and revenue transactions within one month of the end of the fiscal quarter.
+  #   Entities must therefore report according to the following schedule:
+  #   - Q1 is due before the first day of the fourth month after the start of the
+  #     fiscal year (e.g., May 1 if the fiscal year begins on January 1).
+  #   - Q2 is due before the first day of the seventh month after the start of the
+  #     fiscal year.
+  #   - Q3 is due before the first day of the tenth month after the start of the
+  #     fiscal year.
+  #   - Q4 is due before the first day of the thirteenth month after the start of
+  #     the previous fiscal year (meaning that Q4 of the prior fiscal year is due
+  #     before the first day of the first month after the start of the current
+  #     fiscal year).
+  
+  if (is.na(current_fy_begin) == FALSE) {
+    if (today() < (current_fy_begin + months(1))) {
+      current_fy_begin - months(3) - 1
+      
+    } else if (today() < (current_fy_begin + months(4))) {
+      current_fy_begin - 1
+      
+    } else if (today() < (current_fy_begin + months(7))) {
+      current_fy_begin + months(3) - 1
+      
+    } else if (today() < (current_fy_begin + months(10))) {
+      current_fy_begin + months(6) - 1
+      
+    } else if (today() < (current_fy_begin + months(13))) {
+      current_fy_begin + months(9) - 1
+    }
+  } else if (is.na(current_fy_begin) == TRUE) {
+    NA
+  }
+}
+```
+
+#### find_end_w2_fiscal_year
+
+```{r}
+find_end_w2_fy <- function(current_fy_begin) {
+  # Arguments:
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+
+  # Returns:
+  # - The most recent fiscal year for which the entity should have reported W-2 
+  #   employee compensation information.
+  
+  # Comments:
+  # - Transparency Board policy requires participating entities to report W-2
+  #   employee compensation information within three months of the end of the
+  #   fiscal year.
+  
+  if (is.na(current_fy_begin) == FALSE) {
+    if (month(current_fy_begin) == 1) {
+      
+      if (today() < (ymd(current_fy_begin) + months(3))) {
+        year(current_fy_begin) - 2
+        
+      } else if (today() >= (ymd(current_fy_begin) + months(3))) {
+        year(current_fy_begin) - 1
+      }
+    } else if (month(current_fy_begin) != 1) {
+      if (today() < (ymd(current_fy_begin) + months(3))) {
+        year(current_fy_begin) - 1
+        
+      } else if (today() >= (ymd(current_fy_begin) + months(3))) {
+        year(current_fy_begin)
+      }
+    }
+  } else if (is.na(current_fy_begin) == TRUE) {
+    NA
+  }
+}
+```
+
+### Exemptions
+
+#### mark_entities_with_temporary_exemptions
+
+```{r}
+mark_entities_with_temporary_exemptions <- function(salesforce_id, temporary_exemptions) {
+  # Arguments:
+  # - salesforce_id: The entity's Salesforce ID.
+  # - temporary_exemptions: The dataframe of unexpired temporary reporting 
+  #   exemptions.
+  
+  # Returns:
+  # - 1 if the entity has a temporary exemption, otherwise 0.
+  
+  if (salesforce_id %in% temporary_exemptions$salesforce_id) {
+    1
+  } else {
+    0
+  }
+}
+```
+
+#### create_exempt_exp_or_rev_periods
+  
+```{r}
+create_exempt_exp_or_rev_periods <- 
+  function(exemption_end, recurring_exemption, exemption_start, current_fy_begin, name, salesforce_id) {
+  # Arguments:
+  # - exemption_end: The exemption end date.
+  # - recurring_exemption: Whether the exemption is recurring.
+  # - exemption_start: The exemption start date.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - name: The entity's name.
+  # - salesforce_id: The entity's Salesforce ID.
+
+  # Returns:
+  # - The fiscal periods for which the entity is exempt from reporting
+  #   non-temporary expense transactions.
+    
+    if (is.na(exemption_end) == TRUE) {
+      exemption_end <- today()
+    }
+    
+    exempt_periods <- 
+      exemption_start %>% 
+      seq(exemption_end, by = "quarter") %>% 
+      tibble(qtrs = .)
+
+  if (recurring_exemption == TRUE) {
+    recurring_exemption_years <- (year(today()) - year(exemption_start) + 1)
+    
+    for (i in 2:recurring_exemption_years) {
+      exempt_periods[ , i] <- ymd(exempt_periods$qtrs) + years(i - 1)
+    }
+    rm(i)
+    
+    exempt_periods <- 
+      exempt_periods %>% 
+      gather()
+    
+    exempt_periods <- 
+      exempt_periods$value %>% 
+      tibble(qtrs = .)
+  }
+  
+  exempt_periods <- 
+    exempt_periods$qtrs %>% 
+    map_dbl(convert_to_fy_and_qtr, 
+            current_fy_begin = current_fy_begin) %>% 
+    tibble(name = name,
+           salesforce_id = salesforce_id,
+           fy_qtr = .)
+}
+```
+
+#### create_exempt_w2_periods
+
+```{r}
+create_exempt_w2_periods <- function(exemption_end, exemption_start, current_fy_begin, name, salesforce_id) {
+  # Arguments:
+  # - exemption_end: The exemption end date.
+  # - exemption_start: The exemption start date.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - name: The entity's name.
+  # - salesforce_id: The entity's Salesforce ID.
+
+  # Returns:
+  # - The fiscal periods for which the entity is exempt from reporting 
+  #   non-temporary 
+  #   W-2 employee compensation transactions.
+  
+  # Comments:
+  # - W-2 reporting exemptions should not be created in Salesforce as a recurring
+  #   exemption.
+  
+  if (is.na(exemption_end) == TRUE) {
+    exemption_end <- today()
+  }
+  
+  exempt_w2 <- 
+    exemption_start %>% 
+    seq(exemption_end, by = "year") %>% 
+    tibble(yrs = .)
+  
+  if (month(current_fy_begin) == 1) {
+    exempt_w2 <- 
+      tibble(name = name,
+             salesforce_id = salesforce_id,
+             fy = year(exempt_w2$yrs))
+  } else if (month(current_fy_begin) != 1) {
+    exempt_w2 <- 
+      tibble(name = name,
+             salesforce_id = salesforce_id,
+             fy = year(exempt_w2$yrs) + 1)
+  }
+}
+```
+
+### Missing Reports
+
+#### detect_reports_still_missing
+
+```{r}
+detect_reports_still_missing <- function(sf_id, transaction_type = 1, new_report, old_report) {
+
+  # Arguments:
+  # - sf_id: The vector of Salesforce IDs in the new Compliance Report.
+  # - transaction_type: By default 1 (expenses). Set to 2 for revenues and 3 for 
+  #   W-2 employee compensation.
+  # - new_report: The Compliance Report created when running this program.
+  # - old_report: The first Compliance Report of the enforcement cycle.
+  
+  # Returns:
+  # - 1 if any of the current missing reports were also missing in the first 
+  #   Compliance Report of the enforcement cycle, and 0 otherwise (meaning,
+  #   the entity should still be considered delinquent or on hold if the 
+  #   return value of this function is 1).
+  
+  if (transaction_type == 1) {
+    column_name <- "missing_exp"
+  } else if (transaction_type == 2) {
+    column_name <- "missing_rev"
+  } else if (transaction_type == 3) {
+    column_name <- "missing_w2"
+  }
+  
+  new <- 
+    new_report %>% 
+    filter(salesforce_id == sf_id) %>% 
+    select(column_name) %>% 
+    as.character() %>% 
+    strsplit(",") %>% 
+    unlist() %>% 
+    as.tibble()
+
+  old <- 
+    old_report %>% 
+    filter(salesforce_id == sf_id) %>% 
+    select(column_name) %>% 
+    as.character() %>% 
+    strsplit(",") %>% 
+    unlist() %>% 
+    as.tibble()
+  
+  if (any(new$value %in% old$value)) {
+    1
+  } else {
+    0
+  }
+}
+```
+
+#### report_missing_exp_or_rev
+
+```{r}
+report_missing_exp_or_rev <- function(transparency_id, begin_report_exp_rev, current_fy_begin, salesforce_id, transaction_type, exempt_periods, reports_with_parent) {
+  # Arguments:
+  # - transparency_id: The entity's Transparency ID.
+  # - begin_report_exp_rev: The date the entity should have begun reporting 
+  #   expense and revenue transactions.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - salesforce_id: The entity's Salesforce ID.
+  # - transaction_type: Set to 1 for expense transactions and 2 for revenue 
+  #   transactions.
+  # - exempt_periods: The dataframe of entity non-temporary expense or revenue 
+  #   exemptions.
+  # - reports_with_parent: The dataframe of entities that report Transparency
+  #   data with another entity.
+
+  # Returns:
+  # - The fiscal periods for which the entity has not reported at least one 
+  #   expense or revenue transaction.
+
+  transaction_name <-
+      if (transaction_type == 1) {
+        "EXP"
+      } else if (transaction_type == 2) {
+        "REV"
+      }
+  
+  if (!is.na(begin_report_exp_rev) && 
+      !is.na(current_fy_begin)) {
+    
+    required_periods <- 
+      create_exp_rev_reporting_template(begin_report_exp_rev, current_fy_begin)
+    
+    reported_periods <- 
+      report_reported_exp_or_rev(transparency_id,
+                                 current_fy_begin,
+                                 transaction_type)
+    
+    if (salesforce_id %in% exempt_periods$salesforce_id) {
+      reported_periods <-
+        exempt_periods[exempt_periods$salesforce_id == salesforce_id, ] %>% 
+        .[["fy_qtr"]] %>% 
+        combine(reported_periods)
+    }
+    
+    missing_periods <-
+      setdiff(required_periods, reported_periods)
+    
+    if (length(missing_periods) > 0) {
+      map_chr(missing_periods, 
+              convert_to_calendar_year_and_qtr, 
+              current_fy_begin = current_fy_begin) %>% 
+        paste(transaction_name, .) %>% 
+        paste(collapse = ", ")
+    } else if (length(missing_periods) == 0) {
+      ""
+    }
+  } else if (is.na(begin_report_exp_rev) || 
+             is.na(current_fy_begin)) {
+    
+    if (salesforce_id %in% reports_with_parent$salesforce_id) {
+      ""
+    } else if (!salesforce_id %in% reports_with_parent$salesforce_id) {
+      paste(transaction_name, "reporting status unknown")
+    }
+  }
+}
+```
+
+#### report_missing_w2
+  
+```{r}
+report_missing_w2 <- function(transparency_id, current_fy_begin, salesforce_id, begin_report_w2, exempt_w2, reports_with_parent) {
+  # Arguments:
+  # - transparency_id: The entity' Transparency ID.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  # - salesforce_id: The entity's Salesforce ID.
+  # - begin_report_w2: The date the entity should have begun reporting W-2 
+  #   employee
+  #   compensation information.
+  # - exempt_w2: The dataframe of entity non-temporary W-2 reporting exemptions.
+  # - reports_with_parent: The dataframe of entities that report Transparency
+  #   data with another entity.
+  
+  # Returns:
+  # - The fiscal years for which the entity has not uploaded at least one W2 
+  #   employee compensation report.
+  
+  if (!is.na(begin_report_w2) && 
+      !is.na(current_fy_begin)) {
+    
+    required_w2 <- create_w2_reporting_template(begin_report_w2, 
+                                                current_fy_begin)
+    
+    reported_w2 <- report_reported_w2(transparency_id)
+    
+    if (salesforce_id %in% exempt_w2$salesforce_id) {
+      reported_w2 <- 
+        exempt_w2[exempt_w2$salesforce_id == salesforce_id, ] %>% 
+        .[["fy"]] %>% 
+        combine(reported_w2)
+       
+    }
+    
+    missing_w2 <- setdiff(required_w2, reported_w2)
+    
+    if (length(missing_w2) > 0) {
+      missing_w2 %>% 
+        paste("W-2 COMP", .) %>% 
+        paste(collapse = ", ")
+        
+    } else if (length(missing_w2) == 0) {
+      ""
+    }
+    
+  } else if (is.na(begin_report_w2) || 
+             is.na(current_fy_begin)) {
+    
+    if (salesforce_id %in% reports_with_parent$salesforce_id) {
+      ""
+    } else if (!salesforce_id %in% reports_with_parent$salesforce_id) {
+      "W-2 COMP reporting status unknown"
+    }
+  }
+}
+```
+
+### Reporting Templates
+
+#### create_exp_rev_reporting_template
+
+```{r}
+create_exp_rev_reporting_template <- function(begin_report_exp_rev, current_fy_begin) {
+  # Arguments:
+  # - begin_report_exp_rev: The first day of the first fiscal year for which OSA 
+  #   requires the entity to report expense and revenue transactions.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+  
+  # Returns:
+  # - The fiscal years and fiscal periods (in the form of "2018.1") for which the
+  #   entity should have reported expense and revenue transactions (not including
+  #   exemptions).
+  
+  if (!is.na(begin_report_exp_rev) && !is.na(current_fy_begin)) {
+    
+    end_exp_rev_date <- find_end_exp_rev_date(current_fy_begin)
+  
+    if (begin_report_exp_rev < end_exp_rev_date) {
+      begin_report_exp_rev %>% 
+        seq(end_exp_rev_date, by = "quarter") %>% 
+        map_dbl(convert_to_fy_and_qtr, current_fy_begin)
+      
+    } else {
+      vector(mode = "double")
+    }
+  } else if (is.na(begin_report_exp_rev) || is.na(current_fy_begin)) {
+    NA
+  }
+}
+```
+
+#### create_w2_reporting_template
+
+```{r}
+create_w2_reporting_template <- function(begin_report_w2, current_fy_begin) {
+  # Arguments:
+  # - begin_report_w2: The first day of the first fiscal year for which OSA 
+  #   requires 
+  #   the entity to report W-2 employee compensation information.
+  # - current_fy_begin: The start date of the entity's current fiscal year.
+
+  # Returns:
+  # - The fiscal years for which the entity should have reported W-2 employee
+  #   compensation information (not including exemptions).
+    
+  if (!is.na(begin_report_w2) && !is.na(current_fy_begin)) {
+    if (month(current_fy_begin) == 1) {
+      start_fy <- year(begin_report_w2)
+      
+    } else if (month(current_fy_begin) != 1) {
+      start_fy <- year(begin_report_w2) + 1
+    }
+    
+    end_fy <- find_end_w2_fy(current_fy_begin)
+    
+    if (start_fy < end_fy) {
+      if (month(current_fy_begin) == 1) {
+        seq(start_fy, end_fy) %>% 
+          as.double() %>% 
+          as.vector()
+        
+      } else if (month(current_fy_begin) != 1) {
+          seq(start_fy, end_fy) %>% 
+            as.double() %>% 
+            as.vector()
+      } 
+    } else if (start_fy == end_fy) {
+      start_fy %>% 
+        as.double() %>% 
+        as.vector()
+      
+    } else if (start_fy > end_fy) {
+      vector(mode = "double")
+    }
+  } else if (is.na(begin_report_w2) || is.na(current_fy_begin)) {
+    vector(mode = "double")
+  }
+}
+```
+
+## Salesforce
+
+### Import
+
+```{sql, connection = odbc_sf, output.var = "sf_local_gov_info"}
+SELECT Name                          AS name, 
+       Id                            AS salesforce_id,
+       Transparency_ID__c            AS transparency_id, 
+       Fiscal_Year_Begins__c         AS fiscal_year_begin,
+       Expense_Revenue_Start_Date__c AS begin_report_exp_rev, 
+       Wage_Start_Date__c            AS begin_report_w2
+FROM Account
+WHERE RecordTypeId IN (
+  SELECT Id
+  FROM RecordType
+  WHERE DeveloperName IN (
+  'AOG', 
+  'City',
+  'Conservation_District',
+  'County', 
+  'District_Health',     
+  'Housing', 
+  'Interlocal', 
+  'Local_and_Special_Service_District', 
+  'Mental_Health', 
+  'Redevelopment_Agency_Project_Area', 
+  'School_District_or_Charter_School',
+  'Town'))
+AND Entity_Status__c IN (
+  'Current',
+  'On hold',
+  'Delinquent',
+  'Suspended')
+AND Name NOT IN (
+  'Intermountain Power Agency', 
+  'Utah Associated Municipal Power Systems', 
+  'Utah Municipal Power Agency')
+AND (Expense_Revenue_Start_Date__c <= DATE()
+OR Expense_Revenue_Start_Date__c IS NULL)
+```
+
+```{sql, connection = odbc_sf, output.var = "sf_independent_agency_info"}
+SELECT Name                          AS name, 
+       Id                            AS salesforce_id,
+       Transparency_ID__c            AS transparency_id, 
+       Fiscal_Year_Begins__c         AS fiscal_year_begin,
+       Expense_Revenue_Start_Date__c AS begin_report_exp_rev, 
+       Wage_Start_Date__c            AS begin_report_w2
+FROM Account
+WHERE RecordTypeId IN (
+  SELECT Id
+  FROM RecordType
+  WHERE DeveloperName IN (
+  'State_Agency'))
+AND Entity_Status__c IN (
+  'Current',
+  'On hold',
+  'Delinquent',
+  'Suspended')
+AND Name IN (
+  'Utah Dairy Commission', 
+  'Heber Valley Historic Railroad Authority', 
+  'Utah State Railroad Museum Authority',
+  'Utah Housing Corporation',
+  'Utah State Fair Corporation',
+  'School and Institutional Trust Lands Administration',
+  'School and Institutional Trust Fund Office',
+  'Utah Communications Authority',
+  'Utah Energy Infrastructure Authority',
+  'Utah Capital Investment Corporation',
+  'Military Installation Development Authority')
+AND (Expense_Revenue_Start_Date__c <= DATE()
+OR Expense_Revenue_Start_Date__c IS NULL)
+```
+
+```{sql, connection = odbc_sf, output.var = "sf_exemptions"}
+SELECT a.Name                            AS name,
+       t.Account__c                      AS salesforce_id,
+       a.Fiscal_Year_Begins__c           AS fiscal_year_begin,
+       t.Transparency_type_exempted__c   AS transaction_type,
+       t.Recurring_Exemption__c          AS recurring_exemption,
+       t.Exemption_Start_Date__c         AS exemption_start,
+       t.Exemption_End_Date__c           AS exemption_end,
+       t.Temporary_Exemption__c          AS temporary_exemption,
+       t.Temporary_Exemption_End_Date__c AS temporary_exemption_end,
+       t.Exemption_Reason__c             AS exemption_reason
+FROM 
+(SELECT Account__c,
+        Exemption_Start_Date__c,
+        Exemption_End_Date__c,
+        Recurring_Exemption__c,
+        Transparency_type_exempted__c,
+        Temporary_Exemption__c,
+        Temporary_Exemption_End_Date__c,
+        Exemption_Reason__c
+ FROM Transparency_Exemption__c
+ WHERE IsDeleted = FALSE) t
+LEFT JOIN Account a
+ON t.Account__c = a.Id
+WHERE a.Entity_Status__c IN (
+  'Current', 
+  'On hold', 
+  'Delinquent', 
+  'Suspended')
+```
+
+```{r}
+if (exists("initial_report_date")) {
+  initial_report <- 
+    dbGetQuery(
+      odbc_sf,
+      paste("
+            SELECT t.Name AS initial_report_date,
+              a.Name AS entity_name,
+              t.Account__c AS salesforce_id,
+              t.Expenditure_Problem__c AS missing_exp,
+              t.Revenue_Problem__c AS missing_rev,
+              t.Wage_Problem__c AS missing_w2,
+              t.Upload_In_Queue__c AS upload_in_queue,
+              t.Analyst_Notes__c AS analyst_notes
+            FROM (
+              SELECT Name, Account__c, Expenditure_Problem__c,
+                Revenue_Problem__c, Wage_Problem__c, Upload_In_Queue__c, 
+                Analyst_Notes__c
+              FROM Transparency_Reporting__c
+              WHERE Name = ", initial_report_date, ") t
+            LEFT JOIN Account a
+            ON t.Account__c = a.Id")) %>% 
+    filter(upload_in_queue == FALSE)
+}
+```
+
+```{r}
+sf_info <- 
+  sf_local_gov_info %>% 
+  bind_rows(sf_independent_agency_info) %>%
+  as_tibble()
+
+sf_exemptions %<>%
+  as_tibble()
+
+rm(sf_local_gov_info, sf_independent_agency_info)
+```
+
+### Validate
+
+```{r}
+# Entities with a Transparency ID and an NA fiscal_year_begin ####
+na_fiscal_year_begin <- 
+  sf_info %>% 
+  filter(!is.na(transparency_id) & is.na(fiscal_year_begin)) %>% 
+  select(name, transparency_id, fiscal_year_begin)
+
+if (nrow(na_fiscal_year_begin) > 0) {
+  stop("Entities with a Transparency ID should have a current fiscal_year_begin date. 
+       If necessary, query the fiscal period variable from the AWS entity table.
+       Update data in Salesforce and reimport before continuing.", 
+       call. = FALSE)
+}
+rm(na_fiscal_year_begin)
+
+# Future fiscal_year_begin dates ####
+future_fiscal_year_begin <- 
+  sf_info %>% 
+  filter(fiscal_year_begin > today()) %>% 
+  select(name, fiscal_year_begin)
+
+if (nrow(future_fiscal_year_begin) > 0) {
+  stop("fiscal_year_begin must reflect the current fiscal year, rather than a future fiscal year. 
+       Update data in Salesforce and reimport before continuing.", call. = FALSE)
+}
+rm(future_fiscal_year_begin)
+
+# Outdated fiscal_year_begin_date dates ####
+outdated_fiscal_year_begin <- 
+  sf_info %>% 
+  filter(fiscal_year_begin <= (today() - months(12))) %>% 
+  select(name, fiscal_year_begin)
+
+if (nrow(outdated_fiscal_year_begin) > 0) {
+  stop("fiscal_year_begin must reflect the current fiscal year, rather than a prior fiscal year. 
+       Update data in Salesforce and reimport (or use the update_old_fiscal_years function).", call. = FALSE)
+}
+
+# The update_old_fy function and the relevant code to correct the outdated fiscal
+# years is below the remaining data validation checks.
+rm(outdated_fiscal_year_begin)
+
+# begin_report_w2 dates earlier than begin_report_exp_rev dates ####
+early_begin_er <- 
+  sf_info %>% 
+  filter(begin_report_w2 < begin_report_exp_rev) %>% 
+  select(name, begin_report_w2, begin_report_exp_rev)
+
+if (nrow(early_begin_er) > 0) {
+  stop("begin_report_w2 must not be earlier than begin_report_exp_rev.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(early_begin_er)
+
+# Permanent exemptions without a fiscal_year_begin date ####
+permanent_exemptions_no_fiscal_year_begin <- 
+  sf_exemptions %>% 
+  filter(is.na(fiscal_year_begin)) %>% 
+  select(name, fiscal_year_begin)
+
+if (nrow(permanent_exemptions_no_fiscal_year_begin) > 0) {
+  stop("Entities with a permanent exemption must also have a current fiscal_year_begin.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(permanent_exemptions_no_fiscal_year_begin)
+
+# exemption_end dates earlier than exemption_start dates ####
+early_exemption_end <- 
+  sf_exemptions %>% 
+  filter(exemption_end < exemption_start) %>% 
+  select(name, exemption_start, exemption_end)
+
+if (nrow(early_exemption_end) > 0) {
+  stop("exemption_end must not be earlier than exemption_start.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(early_exemption_end)
+
+# Recurring permanent exemptions without exemption_end dates ####
+recur_missing_date <- 
+  sf_exemptions %>% 
+  filter(recurring_exemption == TRUE &
+        (is.na(exemption_start) | is.na(exemption_end))) %>% 
+  select(name, recurring_exemption, exemption_start, exemption_end, 
+         temporary_exemption)
+
+if (nrow(recur_missing_date) > 0) {
+  stop("recurring_exemption must have exemption_start and exemption_end dates.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(recur_missing_date)
+
+# Temporary exemptions without temporary_exemption_end dates ####
+temp_missing_end <- 
+  sf_exemptions %>%
+  filter(temporary_exemption == TRUE &
+         is.na(temporary_exemption_end)) %>% 
+  select(name, temporary_exemption_end, temporary_exemption)
+
+if(nrow(temp_missing_end) > 0) {
+  stop("Temporary exemptions must have an exemption end date. 
+       Update data in Salesforce and reimport.")
+}
+rm(temp_missing_end)
+
+# Permanent W-2 exemption marked as recurring_exemption ####
+recurring_exemption_w2 <- 
+  sf_exemptions %>% 
+  filter(str_detect(transaction_type, "3") & recurring_exemption == TRUE) %>% 
+  select(name, transaction_type, recurring_exemption)
+
+if (nrow(recurring_exemption_w2) > 0) {
+  stop("W-2 exemptions must not be marked as recurring.
+       Update data in Salesforce (using the first day the entity's fiscal year
+       begins as the exemption start date) and reimport.", call. = FALSE)
+}
+rm(recurring_exemption_w2)
+
+# Permanent W-2 exemption start months not equal to fiscal_year_begin month ####
+bad_w2_exemption_start <- 
+  sf_exemptions %>% 
+  filter(str_detect(transaction_type, "3") & 
+         (month(fiscal_year_begin) != month(exemption_start)) &
+         temporary_exemption == FALSE) %>% 
+  select(name, transaction_type, fiscal_year_begin, exemption_start, 
+         temporary_exemption)
+
+if (nrow(bad_w2_exemption_start) > 0) {
+  stop("The exemption_start month of a W-2 exemption must match the month of 
+       fiscal_year_begin.
+       Update data in Salesforce (using the first day the entity's fiscal year 
+       begins as the exemption start date) and reimport.", call. = FALSE)
+}
+rm(bad_w2_exemption_start)
+
+# Permanent W-2 exemptions of less than a full fiscal year ####
+short_w2_exemption <- 
+  sf_exemptions %>% 
+  filter(str_detect(transaction_type, "3") & 
+         (month(exemption_end) < month(fiscal_year_begin + months(11))) &
+         temporary_exemption == FALSE) %>% 
+  select(name, transaction_type, exemption_start, exemption_end)
+
+if (nrow(short_w2_exemption) > 0) {
+  stop("The exemption_end month of a W-2 exemption must match the last month of the entity's fiscal year.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(short_w2_exemption)
+
+# Permanent BS exemption start months not equal to fiscal_year_begin month ####
+bad_bs_exemption_start <- 
+  sf_exemptions %>% 
+  filter(str_detect(transaction_type, "7") & 
+         (month(fiscal_year_begin) != month(exemption_start)) &
+         temporary_exemption == FALSE) %>% 
+  select(name, transaction_type, fiscal_year_begin, exemption_start, temporary_exemption)
+
+if (nrow(bad_bs_exemption_start) > 0) {
+  stop("The exemption_start month of a BS exemption must match the month of fiscal_year_begin.
+       Update data in Salesforce (using the first day the entity's fiscal year 
+       begins as the exemption start date) and reimport.", call. = FALSE)
+}
+rm(bad_bs_exemption_start)
+
+# Permanent W-2 exemptions of less than a full fiscal year ####
+short_bs_exemption <- 
+  sf_exemptions %>% 
+  filter(str_detect(transaction_type, "7") & 
+         (month(exemption_end) < month(fiscal_year_begin + months(11))) &
+         temporary_exemption == FALSE) %>% 
+  select(name, transaction_type, exemption_start, exemption_end)
+
+if (nrow(short_bs_exemption) > 0) {
+  stop("The exemption_end month of a BS exemption must match the last month of the entity's fiscal year.
+       Update data in Salesforce and reimport.", call. = FALSE)
+}
+rm(short_bs_exemption)
+```
+
+Correct outdated fiscal_year_begin values using update_old_fiscal_years(), if not doing so in Salesforce:
+
+```{r, eval = FALSE}
+sf_info$fiscal_year_begin <-
+  sf_info$fiscal_year_begin %>% 
+  map_dbl(update_old_fiscal_years)
+
+class(sf_info$fiscal_year_begin) <- "Date"
+
+sf_exemptions$fiscal_year_begin <-
+  sf_exemptions$fiscal_year_begin %>% 
+  map_dbl(update_old_fiscal_years)
+
+class(sf_exemptions$fiscal_year_begin) <- "Date"
+```
+
+## Exemptions
+
+```{r}
+unexpired_temporary_exemptions <- 
+    sf_exemptions %>% 
+    filter(temporary_exemption == TRUE & 
+           temporary_exemption_end > today())
+
+reports_with_parent_exemptions <- 
+  sf_exemptions %>% 
+  filter(exemption_reason == "Reports with another entity" &
+         temporary_exemption == FALSE) %>% 
+  select(name, salesforce_id)
+
+permanent_exempt_exp <-
+  sf_exemptions %>% 
+  filter(temporary_exemption == FALSE & str_detect(transaction_type, "1"))
+
+permanent_exempt_exp <-
+  list(exemption_end       = as.list(permanent_exempt_exp$exemption_end),
+       recurring_exemption = as.list(permanent_exempt_exp$recurring_exemption),
+       exemption_start     = as.list(permanent_exempt_exp$exemption_start),
+       current_fy_begin    = as.list(permanent_exempt_exp$fiscal_year_begin),
+       name                = as.list(permanent_exempt_exp$name),
+       salesforce_id       = as.list(permanent_exempt_exp$salesforce_id)) %>% 
+  pmap(create_exempt_exp_or_rev_periods) %>% 
+  bind_rows()
+  
+permanent_exempt_rev <-
+  sf_exemptions %>% 
+  filter(temporary_exemption == FALSE & str_detect(transaction_type, "2"))
+
+permanent_exempt_rev <-
+  list(exemption_end       = as.list(permanent_exempt_rev$exemption_end),
+       recurring_exemption = as.list(permanent_exempt_rev$recurring_exemption),
+       exemption_start     = as.list(permanent_exempt_rev$exemption_start),
+       current_fy_begin    = as.list(permanent_exempt_rev$fiscal_year_begin),
+       name                = as.list(permanent_exempt_rev$name),
+       salesforce_id       = as.list(permanent_exempt_rev$salesforce_id)) %>% 
+  pmap(create_exempt_exp_or_rev_periods) %>% 
+  bind_rows()
+
+permanent_exempt_w2 <-
+  sf_exemptions %>% 
+  filter(temporary_exemption == FALSE & str_detect(transaction_type, "3"))
+
+permanent_exempt_w2 <-
+  list(exemption_end    = as.list(permanent_exempt_w2$exemption_end),
+       exemption_start  = as.list(permanent_exempt_w2$exemption_start),
+       current_fy_begin = as.list(permanent_exempt_w2$fiscal_year_begin),
+       name             = as.list(permanent_exempt_w2$name),
+       salesforce_id    = as.list(permanent_exempt_w2$salesforce_id)) %>% 
+  pmap(create_exempt_w2_periods) %>% 
+  bind_rows()
+
+exemptions <- 
+  list(exempt_exp                     = permanent_exempt_exp,
+       exempt_rev                     = permanent_exempt_rev,
+       exempt_w2                      = permanent_exempt_w2,
+       unexpired_temporary_exemptions = unexpired_temporary_exemptions,
+       reports_with_parent            = reports_with_parent_exemptions)
+
+rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev, 
+   permanent_exempt_w2,create_exempt_exp_or_rev_periods, 
+   create_exempt_w2_periods, reports_with_parent_exemptions,
+   unexpired_temporary_exemptions)
+```
+
+## Compliance Report
+
+```{r}
+report <- 
+  sf_info %>% 
+  filter(transparency_id == entity_transparency_id) %>% 
+  as_tibble(sf_info)
+
+report$last_uploaded_batch <- 
+  map_chr(
+    report$transparency_id,
+    query_last_uploaded_batch)%>% 
+  unlist()
+
+report$last_processed_batch <- 
+  map_chr(
+    report$transparency_id,
+    query_last_processed_batch)%>% 
+  unlist()
+
+report$upload_in_queue <- 
+  report$transparency_id %>% 
+  map_dbl(query_uploaded_batches) %>% 
+  unlist()
+
+report$unexpired_temporary_exemption <- 
+  report$salesforce_id %>% 
+  map_dbl(mark_entities_with_temporary_exemptions,
+          exemptions[["unexpired_temporary_exemptions"]])%>% 
+  unlist()
+
+report$missing_exp <- 
+  list(transparency_id      = as.list(report$transparency_id),
+       begin_report_exp_rev = as.list(report$begin_report_exp_rev),
+       current_fy_begin     = as.list(report$fiscal_year_begin),
+       salesforce_id        = as.list(report$salesforce_id)) %>% 
+  pmap(report_missing_exp_or_rev,
+       transaction_type     = 1,
+       exempt_periods       = exemptions[["exempt_exp"]],
+       reports_with_parent  = exemptions[["reports_with_parent"]]) %>% 
+  unlist()
+
+report$missing_rev <- 
+  list(transparency_id      = as.list(report$transparency_id),
+       begin_report_exp_rev = as.list(report$begin_report_exp_rev),
+       current_fy_begin     = as.list(report$fiscal_year_begin),
+       salesforce_id        = as.list(report$salesforce_id)) %>% 
+  pmap(report_missing_exp_or_rev,
+       transaction_type     = 2,
+       exempt_periods       = exemptions[["exempt_rev"]],
+       reports_with_parent  = exemptions[["reports_with_parent"]]) %>% 
+  unlist()
+
+report$missing_w2 <- 
+  list(transparency_id  = as.list(report$transparency_id),
+       current_fy_begin = as.list(report$fiscal_year_begin),
+       salesforce_id    = as.list(report$salesforce_id),
+       begin_report_w2  = as.list(report$begin_report_w2)) %>% 
+  pmap(report_missing_w2,
+       exempt_w2           = exemptions[["exempt_w2"]],
+       reports_with_parent = exemptions[["reports_with_parent"]]) %>% 
+  unlist()
+
+report$still_missing_noticed_report <- 0
+
+if (exists("initial_report_date")) {
+  report$still_missing_noticed_exp <- 
+    report$salesforce_id %>% 
+    map_dbl(detect_reports_still_missing,
+            transaction_type = 1,
+            new_report = report,
+            old_report = initial_report) %>% 
+    unlist()
+
+  report$still_missing_noticed_rev <- 
+    report$salesforce_id %>% 
+    map_dbl(detect_reports_still_missing,
+            transaction_type = 2,
+            new_report = report,
+            old_report = initial_report) %>% 
+    unlist()
+  
+  report$still_missing_noticed_w2 <- 
+    report$salesforce_id %>% 
+    map_dbl(detect_reports_still_missing,
+            transaction_type = 3,
+            new_report = report,
+            old_report = initial_report) %>% 
+    unlist()
+  
+  for (i in 1:nrow(report)) {
+    if (report$still_missing_noticed_exp[[i]] == 1 ||
+        report$still_missing_noticed_rev[[i]] == 1 ||
+        report$still_missing_noticed_w2[[i]]  == 1) {
+      
+      report$still_missing_noticed_report[[i]] <- 1
+      
+    } else if (report$still_missing_noticed_exp[[i]] == 0 &&
+               report$still_missing_noticed_rev[[i]] == 0 &&
+               report$still_missing_noticed_w2[[i]] == 0) {
+      
+      report$still_missing_noticed_report[[i]] <- 0
+    }
+  }
+  rm(i)
+} else {
+  report$still_missing_noticed_report <- 0
+}
+
+report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
+  "Consider compliant; uploaded file(s) waiting to be processed."
+
+report[report[ , "upload_in_queue"] == 0, "note_1"] <- 
+  ""
+
+report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <- 
+  "Consider compliant; temporary exemption granted."
+
+report[report[ , "unexpired_temporary_exemption"] == 0, "note_2"] <- 
+  ""
+
+report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
+  "Still missing a report the entity was noticed for."
+
+report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
+  ""
+
+report$analyst_note <- 
+  paste(report$note_1, report$note_2, report$note_3)
+
+report$report_date <- 
+  Sys.Date()
+
+compliance_report <- 
+  report %>% 
+  select(name, salesforce_id, missing_exp, missing_rev, missing_w2,
+         last_uploaded_batch, last_processed_batch, analyst_note,
+         unexpired_temporary_exemption, upload_in_queue, 
+         still_missing_noticed_report)
+
+View(compliance_report)
+```
+
+## Close
+
+```{r}
+dbDisconnect(odbc_sf)
+dbDisconnect(odbc_aws)
+
+rm(list = ls())
+```

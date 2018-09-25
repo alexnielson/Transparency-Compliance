@@ -1,0 +1,168 @@
+---
+title: "Shared & Unique Transparency IDs 2.0"
+author: "Michael Jensen"
+date: "September 2018"
+output: html_notebook
+---
+# Program Description
+
+Verify the entity Transparency IDs in Salesforce match those in the Transparency database.
+
+# Program
+
+## Inputs, Packages, & Data Connections
+
+```{r, warning = FALSE}
+library(odbc)
+library(tidyverse)
+
+odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
+odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
+```
+
+## Import IDs
+
+```{sql, connection = odbc_aws, output.var = "aws_ids"}
+SELECT name, id AS t_id
+FROM entity
+```
+
+```{r}
+aws_ids$t_id <- as.numeric(aws_ids$t_id)
+```
+
+```{sql, connection = odbc_sf, output.var = "sf_ids1"}
+SELECT Account.Name               AS name,
+       Account.Transparency_ID__c AS t_id,
+       Account.Entity_Status__c   AS entity_status,
+       RecordType.Name            AS entity_type
+FROM Account
+LEFT JOIN RecordType
+ON Account.RecordTypeId = RecordType.Id
+WHERE RecordType.Name IN (
+  'AOG', 
+  'City',
+  'Conservation District',
+  'County', 
+  'District Health',     
+  'Housing',
+  'Interlocal',
+  'Institute of Higher Education',
+  'Local and Special Service District', 
+  'Mental Health', 
+  'Redevelopment Agency Project Area', 
+  'School District or Charter School',
+  'Town')
+```
+
+```{sql, connection = odbc_sf, output.var = "sf_ids2"}
+SELECT Account.Name               AS name,
+       Account.Transparency_ID__c AS t_id,
+       Account.Entity_Status__c   AS entity_status,
+       RecordType.Name            AS entity_type
+FROM Account
+LEFT JOIN RecordType
+ON Account.RecordTypeId = RecordType.Id
+WHERE Account.Name IN (
+  'Utah Dairy Commission', 
+  'Heber Valley Historic Railroad Authority', 
+  'Utah State Railroad Museum Authority',
+  'Utah Housing Corporation',
+  'Utah State Fair Corporation',
+  'School and Institutional Trust Lands Administration',
+  'School and Institutional Trust Fund Office',
+  'Utah Communications Authority',
+  'Utah Energy Infrastructure Authority',
+  'Utah Capital Investment Corporation',
+  'Military Installation Development Authority')
+```
+
+```{r}
+sf_ids <- 
+  bind_rows(sf_ids1, sf_ids2)
+
+rm(sf_ids1, sf_ids2)
+```
+
+## Shared Transparency IDs
+
+```{r}
+shared_ids <- 
+  merge(aws_ids, sf_ids, by = "t_id", suffixes = c(".aws", ".sf")) %>% 
+  select(t_id, name.aws, name.sf)
+```
+
+Export the shared Transparency IDs and evaluate using Excel's Fuzzy Match Add-in (a 90-95% match is good enough).
+
+```{r}
+write.csv(shared_ids, 
+          file = "C:/Users/mjensen1/Desktop/Shared Transparency IDs.csv",
+          row.names = FALSE)
+```
+
+## Unique IDs
+
+Find the Transparency IDs unique to AWS, removing the entities that are test entities or that we don't care about.
+
+```{r}
+unique_aws_entities <- 
+  merge(aws_ids, sf_ids, by = "t_id", suffixes = c(".aws", ".sf"), 
+        all = TRUE) %>% 
+  filter(is.na(name.sf) == TRUE & (
+    entity_status != "Dissolved" | is.na(entity_status) == TRUE)) %>% 
+  filter(
+    name.aws != "",
+    name.aws != "AVAILABLE",
+    name.aws != "Canyon Land County Improvement District(Replaced)",
+    name.aws != "Grand County Water Conservancy District (Duplicate",
+    name.aws != "State of Utah",
+    name.aws != "Success Charter School",
+    name.aws != "UHEAA - Student Loan Guarantee Program",
+    name.aws != "UHEAA - Student Loan Purchase Program",
+    name.aws != "Utah Educational Savings Plan",
+    name.aws != "Utah State Board of Regents",
+    name.aws != "Wasatch County SSD #1 (Heber Estates)",
+    name.aws != "Weber Morgan Narcotics Strike Force (Weber County)",
+    name.aws != "Wellsville-Mendon Conservation District (DUPLICATE",
+    name.aws != "x",
+    name.aws != "xk12",
+    name.aws != "xxk12",
+    name.aws != "XXSSD",
+    name.aws != "zz",
+    name.aws != "zzzz",
+    name.aws != "zzzzz")
+```
+
+```{r}
+write.csv(unique_aws_entities, 
+          file = "C:/Users/mjensen1/Desktop/Unique AWS Entities.csv",
+          row.names = FALSE)
+```
+
+Find the entities unique to Salesforce. This list can be used as a reference in determining whether the entity list in Transparency is complete.
+
+* Note that some of the entities that appear below are component units and will therefore report with a parent entity.
+* Note that for record-keeping purposes, OSA's Salesforce database may have the same entity listed under two similar (yet different) names. Davis Technical College, for example, appears in the unique_sf_entities report, but the college does have a Transparency ID as Davis Applied Technology College. Thus, an entity may appear in the list below but that does not mean that the Transparency database is incomplete.
+
+```{r}
+unique_sf_entities <- 
+  merge(aws_ids, sf_ids, by = "t_id", suffixes = c(".aws", ".sf"), 
+        all = TRUE) %>% 
+  filter(
+    is.na(name.aws) == TRUE, 
+    entity_status != "Dissolved",
+    entity_status != "Inactive")
+```
+
+```{r}
+write.csv(unique_sf_entities, 
+          file = "C:/Users/mjensen1/Desktop/Unique SF Entities.csv",
+          row.names = FALSE)
+```
+
+## Close
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+rm(list = ls())
+```

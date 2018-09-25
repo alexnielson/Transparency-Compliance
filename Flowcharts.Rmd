@@ -1,0 +1,227 @@
+---
+title: "Transparency Flowcharts"
+author: "Michael Jensen"
+output: 
+  html_document:
+    fig_width: 8.5
+    fig_height: 11
+editor_options: 
+  chunk_output_type: inline
+---
+```{r, echo = FALSE}
+library(DiagrammeR)
+```
+
+# Overview
+
+```{r, echo = FALSE}
+grViz(" digraph {
+
+graph [label = Overview
+       labelloc = top
+       rankdir = TB
+       fontsize = 16]
+
+node [shape = box
+      color = Chocolate
+      fontsize = 12]
+  Transparency
+
+node [color = DodgerBlue]
+  Salesforce
+  'Inactive Entity \nReport'
+  'Reports w/Parent \nReport'
+
+node [color = ForestGreen]
+  'Analytical Software'
+  'Salesforce \nData Quality \nReports'
+  'Compliance \nReport'
+  'Quality \nReport'
+
+node [color = Black]
+  'Update & Enforcement \nProcess'
+  
+edge []
+  Transparency
+    -> {Salesforce; 'Analytical Software'}
+
+edge [tailport = s
+      headport = n]
+  'Analytical Software'
+    -> {'Salesforce \nData Quality \nReports'; 'Quality \nReport'; 
+        'Compliance \nReport'}
+
+edge [tailport = s
+      headport = n]
+  {'Compliance \nReport'; 'Quality \nReport'; 
+  'Salesforce \nData Quality \nReports'; 'Inactive Entity \nReport'; 
+  'Reports w/Parent \nReport'}
+    -> 'Update & Enforcement \nProcess'
+
+edge [tailport = s
+      headport = n]
+  Transparency
+    -> 'Analytical Software'
+  Salesforce
+    -> {'Analytical Software'; 'Inactive Entity \nReport'; 
+        'Reports w/Parent \nReport'}
+
+
+{rank = same; Transparency; Salesforce}
+{rank = same; 'Compliance \nReport'; 'Quality \nReport'; 
+              'Salesforce \nData Quality \nReports'}
+{rank = same; 'Inactive Entity \nReport'; 
+              'Reports w/Parent \nReport'}
+}")
+```
+
+# Update and Enforcement Process
+
+```{r, echo = FALSE}
+grViz(" digraph {
+
+
+graph [label = 'Update & Enforcement Process'
+       labelloc = top
+       rankdir = TB
+       fontsize = 16]
+
+node [shape = box
+      fontsize = 12]
+  'OSA \nReview'
+  'Division of Finance \nReview'
+  'Update Request \nProcess'
+  'Enforcement \nProcess'
+
+node [color = DodgerBlue]
+  10 [label = Salesforce]
+  11 [label = Salesforce]
+
+node [color = Chocolate]
+  Transparency
+
+{rank = same; 'Division of Finance \nReview'; 10}
+{rank = same; 'Update Request \nProcess'; 'Enforcement \nProcess'}
+
+edge []
+  'Division of Finance \nReview'
+    -> 10
+  'Update Request \nProcess'
+    -> 'Enforcement \nProcess'
+
+edge [tailport = s]
+  'Update Request \nProcess'
+    -> 11
+
+edge [tailport = s]
+  'Enforcement \nProcess'
+    -> Transparency
+
+edge [tailport = s
+      headport = nw]
+  'Update Request \nProcess'
+    -> Transparency
+
+edge [tailport = s
+      headport = ne]
+  'Enforcement \nProcess'
+    -> 11
+
+edge [tailport = s
+      headport = n]
+  'OSA \nReview'
+    -> {'Division of Finance \nReview'; 10}
+  10
+    -> {'Update Request \nProcess'; 'Enforcement \nProcess'}
+}")
+```
+
+# Determine Compliance Status
+
+```{r, echo = FALSE}
+grViz(" digraph {
+
+graph [label = 'Determine Compliance Status'
+       labelloc = top
+       rankdir = TB
+       fontsize = 16]
+
+node [shape = box
+      fontsizte = 12]
+  'Update during next compliance check'
+
+node [color = ForestGreen]
+  R
+  'Required reports submitted?'
+  1 [label = 'Yes']
+  2 [label = 'No']
+  'File uploaded or temporary exemption granted?'
+  3 [label = 'Yes']
+  4 [label = 'No']
+  '60-day Notice sent?'
+  5 [label = 'Yes']
+  6 [label = 'No']
+
+node [color = DodgerBlue]
+  Salesforce  
+  '60-day Grace Period expired?'
+  7 [label = 'Yes']
+  8 [label = 'No']
+  'T Status: Current' 
+  'T Status: On Hold' 
+  'T Status: Delinquent'
+  'OSA Status: Current' 
+  'OSA Status: Delinquent' 
+  'OSA Status: On Hold'
+
+node [style = invis
+      color = White]
+  100
+
+{rank = same; 'Required reports submitted?'; R}
+{rank = same; '60-day Grace Period expired?'; Salesforce}
+{rank = same; 1; 2}
+{rank = same; 3; 4}
+{rank = same; 5; 6}
+{rank = same; 7; 8}
+{rank = same; 'T Status: Current' 'T Status: Delinquent' 'T Status: On Hold'}
+{rank = same; 'OSA Status: Current'; 'OSA Status: Delinquent'; 
+  'OSA Status: On Hold'}
+{rank = same; 'Update during next compliance check'; 100}
+{rank = sink; 'Update during next compliance check'}
+
+edge [tailport = s
+      headport = n]
+  'Required reports submitted?'
+    -> {1 2}
+  1
+    -> 'T Status: Current' 
+    -> 'OSA Status: Current'
+    -> 'Update during next compliance check'
+  2 
+    -> 'File uploaded or temporary exemption granted?' 
+    -> {3 4}
+  3
+    -> 'T Status: Current'
+  4
+    -> '60-day Notice sent?' 
+    -> {5 6}
+  5
+    -> '60-day Grace Period expired?' 
+    -> {7 8}
+  7
+    -> 'T Status: On Hold' 
+    -> 'OSA Status: On Hold'
+    -> 'Update during next compliance check'
+  {6 8}
+    -> 'T Status: Delinquent' 
+    -> 'OSA Status: Delinquent'
+    -> 'Update during next compliance check'
+
+edge [tailport = s
+      headport = n]
+  R
+    -> Salesforce 
+    -> 100
+}")
+```
