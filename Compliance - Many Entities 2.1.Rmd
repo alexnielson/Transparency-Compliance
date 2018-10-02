@@ -1,5 +1,5 @@
 ---
-title: "Transparency Compliance 2.1 - Many Entities"
+title: "Transparency Compliance 2.2 - Many Entities"
 author: "Michael Jensen"
 date: "July 2018"
 output: html_notebook
@@ -698,6 +698,7 @@ detect_reports_still_missing <- function(sf_id, transaction_type = 1, new_report
     as.character() %>% 
     strsplit(",") %>% 
     unlist() %>% 
+    str_trim() %>% 
     as.tibble()
 
   old <- 
@@ -707,6 +708,7 @@ detect_reports_still_missing <- function(sf_id, transaction_type = 1, new_report
     as.character() %>% 
     strsplit(",") %>% 
     unlist() %>% 
+    str_trim() %>% 
     as.tibble()
   
   if (any(new$value %in% old$value)) {
