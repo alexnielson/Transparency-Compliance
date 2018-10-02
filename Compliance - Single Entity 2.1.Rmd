@@ -1,5 +1,5 @@
 ---
-title: "Transparency Compliance 2.1 - Single Entity"
+title: "Transparency Compliance 2.2 - Single Entity"
 author: "Michael Jensen"
 date: "July 2018"
 output: html_notebook
@@ -19,7 +19,7 @@ For the active and participating entity that OSA will monitor for Transparency c
 The only user inputs required for this program are the the entity's Transparency ID, the DSN names to Salesforce and AWS, and, if this not the first Compliance Report of the enforcement cycle, the date of the initial report.
 
 ```{r}
-entity_transparency_id <- 525
+entity_transparency_id <- 1155
 dsn_sf                 <- "Salesforce"
 dsn_aws                <- "transpAWS"
 ```
@@ -706,6 +706,7 @@ detect_reports_still_missing <- function(sf_id, transaction_type = 1, new_report
     as.character() %>% 
     strsplit(",") %>% 
     unlist() %>% 
+    str_trim() %>% 
     as.tibble()
 
   old <- 
@@ -715,6 +716,7 @@ detect_reports_still_missing <- function(sf_id, transaction_type = 1, new_report
     as.character() %>% 
     strsplit(",") %>% 
     unlist() %>% 
+    str_trim() %>% 
     as.tibble()
   
   if (any(new$value %in% old$value)) {
