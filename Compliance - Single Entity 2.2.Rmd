@@ -19,7 +19,7 @@ For the active and participating entity that OSA will monitor for Transparency c
 The only user inputs required for this program are the the entity's Transparency ID, the DSN names to Salesforce and AWS, and, if this not the first Compliance Report of the enforcement cycle, the date of the initial report.
 
 ```{r}
-entity_transparency_id <- 1391
+entity_transparency_id <- 731
 dsn_sf                 <- "Salesforce"
 dsn_aws                <- "transpAWS"
 ```
@@ -1492,7 +1492,7 @@ View(compliance_report)
 
 ## Close
 
-```{r}
+```{r, eval=FALSE}
 dbDisconnect(odbc_sf)
 dbDisconnect(odbc_aws)
 
