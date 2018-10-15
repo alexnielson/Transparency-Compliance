@@ -1476,6 +1476,10 @@ report$analyst_note <-
 
 report$report_date <- 
   Sys.Date()
+
+report$report_date <- 
+  report$report_date %>% 
+  format("%m/%d/%Y")
 ```
 
 ```{r}
@@ -1501,7 +1505,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(223, 1499, 1245)
+  c(623, 223)
 
 report <- 
   sf_info %>% 
@@ -1633,6 +1637,10 @@ report$analyst_note <-
 report$report_date <- 
   Sys.Date()
 
+report$report_date <- 
+  report$report_date %>% 
+  format("%m/%d/%Y")
+
 compliance_report <- 
   report %>% 
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
@@ -1649,6 +1657,8 @@ compliance_report %>%
   write.csv(
     file = paste0(file_path, file_name),
     row.names = FALSE)
+
+compliance_report
 ```
 
 ## Close
