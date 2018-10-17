@@ -1,4 +1,0 @@
-"report_date","name","salesforce_id","missing_exp","missing_rev","missing_w2","last_uploaded_batch","last_processed_batch","unexpired_temporary_exemption","upload_in_queue","still_missing_noticed_report","analyst_note"
-2018-10-15,"American Preparatory Academy- Utah Charter Academies","0014100000rD1hmAAC","EXP 2017 JUL-SEP, EXP 2017 OCT-DEC, EXP 2018 JAN-MAR, EXP 2018 APR-JUN","REV 2017 JUL-SEP, REV 2017 OCT-DEC, REV 2018 JAN-MAR, REV 2018 APR-JUN","","2018-10-04","2018-10-12",0,0,1,"  Still missing a report the entity was noticed for."
-2018-10-15,"Indian Ridge Water Conservancy District","0014100000rD1DAAA0","EXP 2018 JAN-MAR, EXP 2018 APR-JUN","REV 2018 JAN-MAR, REV 2018 APR-JUN","","2018-02-22","2018-02-24",0,0,1,"  Still missing a report the entity was noticed for."
-2018-10-15,"Deweyville Town","0014100000rD1phAAC","EXP 2018 APR-JUN","REV 2018 APR-JUN","W-2 COMP 2018","2018-10-03","2018-10-12",0,0,1,"  Still missing a report the entity was noticed for."
