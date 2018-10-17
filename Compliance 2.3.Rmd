@@ -1493,7 +1493,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(627)
+  c(1500, 1522, 1541, 1539, 1523, 1485, 1410)
 
 report <- 
   sf_info %>% 
@@ -1627,6 +1627,16 @@ report$report_date <-
 
 report$report_date <- 
   report$report_date %>% 
+  format("%m/%d/%Y")
+
+report$last_processed_batch <- 
+  report$last_processed_batch %>% 
+  as.Date() %>% 
+  format("%m/%d/%Y")
+
+report$last_uploaded_batch <- 
+  report$last_uploaded_batch %>% 
+  as.Date() %>% 
   format("%m/%d/%Y")
 
 compliance_report <- 
