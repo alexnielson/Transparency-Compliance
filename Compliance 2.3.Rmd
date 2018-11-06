@@ -26,7 +26,7 @@ Additionally, Transparency IDs are required in the section titled "Compliance Re
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-initial_report_date <- paste0("'", "8/1/2018", "'")
+#initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1493,7 +1493,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1500, 1522, 1541, 1539, 1523, 1485, 1410)
+  c(1496)
 
 report <- 
   sf_info %>% 
