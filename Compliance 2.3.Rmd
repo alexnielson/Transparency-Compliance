@@ -1,12 +1,10 @@
 ---
-title: "Transparency Compliance 2.3"
+title: "Transparency Compliance 2.4"
 author: "Michael Jensen"
-date: "October 2018"
+date: "November 2018"
 output: html_notebook
 ---
 # Program Description
-
-TEST TEST TEST
 
 For active and participating governments that OSA will monitor for Transparency compliance, report the fiscal periods for which the government does not have a permanent reporting exemption and has not complied with the following reporting requirements:
 
@@ -14,16 +12,16 @@ For active and participating governments that OSA will monitor for Transparency 
 * One processed revenue transaction per fiscal quarter.
 * One processed W-2 employee compensation file per fiscal year.
 
-# Program
+# Program - Preparation Material
 
 ## Inputs, Packages, & Data Connections
 
 User input is required for the following:
 
 * The date of the initial report of the compliance cycle if this is not the initial report.
-* DSN name for the Salesforce and AWS ODBCs.
+* The DSN name for the Salesforce and AWS ODBCs.
 
-Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a single government or a handful of governments.
+Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a subset of all active and participating local governments.
 
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
@@ -1339,6 +1337,8 @@ rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev,
    unexpired_temporary_exemptions)
 ```
 
+# Program - Compliance Reports
+
 ## Compliance Report - All Governments
 
 ```{r}
@@ -1661,7 +1661,7 @@ compliance_report %>%
 compliance_report
 ```
 
-## Close
+# Close
 
 ```{r}
 dbDisconnect(odbc_sf)
