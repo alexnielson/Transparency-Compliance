@@ -26,7 +26,7 @@ Additionally, Transparency IDs are required in the section titled "Compliance Re
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-#initial_report_date <- as.character("8/1/2018")
+initial_report_date <- mdy("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1345,14 +1345,14 @@ rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev,
 report <- as_tibble(sf_info)
 
 report$upload_in_queue <- 
-  report$transparency_id %>% 
-  map_dbl(query_uploaded_batches) %>% 
-  unlist()
+    report$transparency_id %>% 
+    map_dbl(query_uploaded_batches) %>% 
+    unlist()
 
 report$last_uploaded_batch <- 
   map_chr(
-    report$transparency_id,
-    query_last_uploaded_batch)%>% 
+  report$transparency_id,
+  query_last_uploaded_batch)%>% 
   unlist()
 
 report$last_processed_batch <- 
@@ -1446,10 +1446,10 @@ if (exists("initial_report_date")) {
 }
 
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
-  "Consider compliant; uploaded file(s) waiting to be processed."
+"Consider compliant; uploaded file(s) waiting to be processed."
 
 report[report[ , "upload_in_queue"] == 0, "note_1"] <- 
-  ""
+""
 
 report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <- 
   "Consider compliant; temporary exemption granted."
@@ -1495,7 +1495,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1496)
+  c(623, 1496)
 
 report <- 
   sf_info %>% 
