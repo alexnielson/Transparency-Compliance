@@ -23,12 +23,6 @@ User input is required for the following:
 
 Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a subset of all active and participating local governments.
 
-```{r}
-# Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
-
-initial_report_date <- mdy("8/1/2018")
-```
-
 ```{r, warning=FALSE, message=FALSE}
 library(lubridate)
 library(magrittr)
@@ -38,6 +32,12 @@ library(tidyverse)
 
 odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
 odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
+```
+
+```{r}
+# Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
+
+initial_report_date <- mdy("8/1/2018")
 ```
 
 ## Functions
@@ -1345,9 +1345,9 @@ rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev,
 report <- as_tibble(sf_info)
 
 report$upload_in_queue <- 
-    report$transparency_id %>% 
-    map_dbl(query_uploaded_batches) %>% 
-    unlist()
+  report$transparency_id %>% 
+  map_dbl(query_uploaded_batches) %>% 
+  unlist()
 
 report$last_uploaded_batch <- 
   map_chr(
@@ -1357,8 +1357,8 @@ report$last_uploaded_batch <-
 
 report$last_processed_batch <- 
   map_chr(
-    report$transparency_id,
-    query_last_processed_batch)%>% 
+  report$transparency_id,
+  query_last_processed_batch)%>% 
   unlist()
 
 report$unexpired_temporary_exemption <- 
@@ -1443,6 +1443,14 @@ if (exists("initial_report_date")) {
   rm(i)
 } else {
   report$still_missing_noticed_report <- 0
+}
+
+if (exists("initial_report_date") &&
+    today() > initial_report_date + days(60)) {
+  report$grace_period_expired <- 1
+  
+} else {
+    report$grace_period_expired <- 0
 }
 
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
@@ -1509,14 +1517,14 @@ report$upload_in_queue <-
 
 report$last_uploaded_batch <- 
   map_chr(
-    report$transparency_id,
-    query_last_uploaded_batch)%>% 
+  report$transparency_id,
+  query_last_uploaded_batch) %>% 
   unlist()
 
 report$last_processed_batch <- 
   map_chr(
-    report$transparency_id,
-    query_last_processed_batch)%>% 
+  report$transparency_id,
+  query_last_processed_batch) %>% 
   unlist()
 
 report$unexpired_temporary_exemption <- 
@@ -1603,6 +1611,14 @@ if (exists("initial_report_date")) {
   report$still_missing_noticed_report <- 0
 }
 
+if (exists("initial_report_date") &&
+    today() > initial_report_date + days(60)) {
+  report$grace_period_expired <- 1
+  
+} else {
+    report$grace_period_expired <- 0
+}
+
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
   "Consider compliant; uploaded file(s) waiting to be processed."
 
@@ -1645,7 +1661,7 @@ compliance_report <-
   report %>% 
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
-         unexpired_temporary_exemption, upload_in_queue, 
+         unexpired_temporary_exemption, upload_in_queue, grace_period_expired,
          still_missing_noticed_report, analyst_note)
 
 file_name <- paste0("Okay to Hold Review",".csv")
