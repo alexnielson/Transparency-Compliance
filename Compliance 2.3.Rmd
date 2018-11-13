@@ -552,22 +552,43 @@ find_end_w2_fy <- function(current_fy_begin) {
 
 ### Exemptions
 
-#### mark_entities_with_temporary_exemptions
+#### catch_during_next_cycle
 
 ```{r}
-mark_entities_with_temporary_exemptions <- function(salesforce_id, temporary_exemptions) {
+catch_during_next_cycle <- function(salesforce_id, initial_report_date, sf_status_history) {
+  # We decided to release an LG's money when we see a batch in UPLOADED status.
+  # This means, however, that an LG may upload a batch that does not contain the
+  # missing report we sent a notice for. In this situation, we decided that we 
+  # would wait until the next compliance cycle to catch the missing report. This 
+  # means, however, that some LGs show up every week after the 60-day grace period
+  # as being delinquent and we have to manually remove the delinqency. In order to
+  # reduce the likelihood of errors in the manual review process, I created this 
+  # function. If the LG uploads a batch to Transparency and thus considered 
+  # current, we will not move the LG back to being on hold until the next 
+  # compliance cycle.
+  
   # Arguments:
   # - salesforce_id: The entity's Salesforce ID.
-  # - temporary_exemptions: The dataframe of unexpired temporary reporting 
-  #   exemptions.
+  # - 
   
   # Returns:
-  # - 1 if the entity has a temporary exemption, otherwise 0.
+  # - 1 if the entity has at least one "Okay" status following the 60-day grace
+  #   period and 0 otherwise.
+  # - 0 if the date of the report is during the 60-day grace period.
   
-  if (salesforce_id %in% temporary_exemptions$salesforce_id) {
-    1
-  } else {
+  if (today() <= initial_report_date + days(60)) {
     0
+  } else {
+    transparency_status_history <- 
+      sf_status_history %>% 
+      filter(salesforce_id == salesforce_id) %>% 
+      filter(valid_from_date > initial_report_date + days(60))
+    
+    if ("Okay" %in% transparency_status_history$status) {
+      1
+    } else {
+      0
+    }
   }
 }
 ```
@@ -664,6 +685,26 @@ create_exempt_w2_periods <- function(exemption_end, exemption_start, current_fy_
       tibble(name = name,
              salesforce_id = salesforce_id,
              fy = year(exempt_w2$yrs) + 1)
+  }
+}
+```
+
+#### mark_entities_with_temporary_exemptions
+
+```{r}
+mark_entities_with_temporary_exemptions <- function(salesforce_id, temporary_exemptions) {
+  # Arguments:
+  # - salesforce_id: The entity's Salesforce ID.
+  # - temporary_exemptions: The dataframe of unexpired temporary reporting 
+  #   exemptions.
+  
+  # Returns:
+  # - 1 if the entity has a temporary exemption, otherwise 0.
+  
+  if (salesforce_id %in% temporary_exemptions$salesforce_id) {
+    1
+  } else {
+    0
   }
 }
 ```
@@ -1010,6 +1051,14 @@ AND (Expense_Revenue_Start_Date__c <= DATE()
 OR Expense_Revenue_Start_Date__c IS NULL)
 ```
 
+```{sql, connection=odbc_sf, output.var="sf_status_history"}
+SELECT
+    ValidFromDate  AS valid_from_date, 
+    Account__c_hst AS salesforce_id,
+    Status__c_hst  AS status
+FROM Transparency_Reporting__c_hd
+```
+
 ```{sql, connection = odbc_sf, output.var = "sf_exemptions"}
 SELECT a.Name                            AS name,
        t.Account__c                      AS salesforce_id,
@@ -1072,6 +1121,11 @@ sf_info <-
   sf_local_gov_info %>% 
   bind_rows(sf_independent_agency_info) %>% 
   as_tibble()
+
+sf_status_history <- 
+  sf_status_history %>% 
+  left_join(sf_local_gov_info, by = "salesforce_id") %>% 
+  select(name, salesforce_id, status, valid_from_date)
 
 sf_exemptions %<>%
   as_tibble()
@@ -1453,6 +1507,13 @@ if (exists("initial_report_date") &&
     report$grace_period_expired <- 0
 }
 
+report$catch_next_cycle <- 
+  report$salesforce_id %>%
+  map_dbl(catch_during_next_cycle, 
+          initial_report_date = initial_report_date,
+          sf_status_history = sf_status_history) %>% 
+  unlist()
+
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
 "Consider compliant; uploaded file(s) waiting to be processed."
 
@@ -1486,7 +1547,7 @@ compliance_report <-
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
          unexpired_temporary_exemption, upload_in_queue, 
-         still_missing_noticed_report, analyst_note)
+         still_missing_noticed_report, catch_next_cycle, analyst_note)
 
 file_name <- paste0(Sys.Date(),".csv")
 
@@ -1503,7 +1564,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(623, 1496)
+  c(623, 1496, 1635, 1634, 259, 221, 223, 833, 25, 283, 41, 205, 1175, 227, 107, 151, 153, 49)
 
 report <- 
   sf_info %>% 
@@ -1619,6 +1680,13 @@ if (exists("initial_report_date") &&
     report$grace_period_expired <- 0
 }
 
+report$catch_next_cycle <- 
+  report$salesforce_id %>%
+  map_dbl(catch_during_next_cycle, 
+          initial_report_date = initial_report_date,
+          sf_status_history = sf_status_history) %>% 
+  unlist()
+
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
   "Consider compliant; uploaded file(s) waiting to be processed."
 
@@ -1662,7 +1730,7 @@ compliance_report <-
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
          unexpired_temporary_exemption, upload_in_queue, grace_period_expired,
-         still_missing_noticed_report, analyst_note)
+         still_missing_noticed_report, catch_next_cycle, analyst_note)
 
 file_name <- paste0("Okay to Hold Review",".csv")
 
