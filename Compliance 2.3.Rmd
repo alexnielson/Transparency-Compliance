@@ -26,7 +26,7 @@ Additionally, Transparency IDs are required in the section titled "Compliance Re
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-#initial_report_date <- as.character("8/1/2018")
+initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1047,7 +1047,8 @@ if (exists("initial_report_date")) {
     dbGetQuery(
       odbc_sf,
       paste("
-            SELECT t.Name AS initial_report_date,
+            SELECT 
+              t.Name AS report_date,
               a.Name AS entity_name,
               t.Account__c AS salesforce_id,
               t.Expenditure_Problem__c AS missing_exp,
@@ -1056,14 +1057,19 @@ if (exists("initial_report_date")) {
               t.Upload_In_Queue__c AS upload_in_queue,
               t.Analyst_Notes__c AS analyst_notes
             FROM (
-              SELECT Name, Account__c, Expenditure_Problem__c,
-                Revenue_Problem__c, Wage_Problem__c, Upload_In_Queue__c, 
+              SELECT 
+                Name, 
+                Account__c, 
+                Expenditure_Problem__c,
+                Revenue_Problem__c, 
+                Wage_Problem__c, 
+                Upload_In_Queue__c, 
                 Analyst_Notes__c
-              FROM Transparency_Reporting__c
-              WHERE Name = ", initial_report_date, ") t
+              FROM Transparency_Reporting__c) t
             LEFT JOIN Account a
-            ON t.Account__c = a.Id")) %>% 
-    filter(upload_in_queue == FALSE)
+            ON t.Account__c = a.Id")) %>%
+    filter(report_date == initial_report_date, 
+           upload_in_queue == FALSE)
 }
 ```
 
@@ -1493,7 +1499,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1496)
+  c(1485)
 
 report <- 
   sf_info %>% 
