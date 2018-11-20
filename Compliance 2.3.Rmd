@@ -37,7 +37,7 @@ odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-initial_report_date <- mdy("11/16/2018")
+# initial_report_date <- mdy("11/19/2018")
 ```
 
 ## Functions
@@ -1420,13 +1420,13 @@ report$upload_in_queue <-
 report$last_uploaded_batch <- 
   map_chr(
   report$transparency_id,
-  query_last_uploaded_batch)%>% 
+  query_last_uploaded_batch) %>% 
   unlist()
 
 report$last_processed_batch <- 
   map_chr(
   report$transparency_id,
-  query_last_processed_batch)%>% 
+  query_last_processed_batch) %>% 
   unlist()
 
 report$unexpired_temporary_exemption <- 
@@ -1467,6 +1467,10 @@ report$missing_w2 <-
        reports_with_parent = exemptions[["reports_with_parent"]]) %>% 
   unlist()
 
+
+report$still_missing_noticed_exp <- 0
+report$still_missing_noticed_rev <- 0
+report$still_missing_noticed_w2  <- 0
 report$still_missing_noticed_report <- 0
 
 if (exists("initial_report_date")) {
@@ -1503,7 +1507,7 @@ if (exists("initial_report_date")) {
       
     } else if (report$still_missing_noticed_exp[[i]] == 0 &&
                report$still_missing_noticed_rev[[i]] == 0 &&
-               report$still_missing_noticed_w2[[i]] == 0) {
+               report$still_missing_noticed_w2[[i]]  == 0) {
       
       report$still_missing_noticed_report[[i]] <- 0
     }
@@ -1513,26 +1517,48 @@ if (exists("initial_report_date")) {
   report$still_missing_noticed_report <- 0
 }
 
+rm(still_missing_noticed_exp, still_missing_noticed_rev, 
+   still_missing_noticed_w2)
+
 if (exists("initial_report_date") &&
     today() > initial_report_date + days(60)) {
   report$grace_period_expired <- 1
-  
 } else {
-    report$grace_period_expired <- 0
+  report$grace_period_expired <- 0
 }
 
-report$catch_next_cycle <- 
-  report$salesforce_id %>%
-  map_dbl(catch_during_next_cycle, 
-          initial_report_date = initial_report_date,
-          sf_status_history = sf_status_history) %>% 
-  unlist()
+if (exists("initial_report_date")) {
+  report$catch_next_cycle <- 
+    report$salesforce_id %>%
+    map_dbl(catch_during_next_cycle, 
+            initial_report_date = initial_report_date,
+            sf_status_history = sf_status_history) %>% 
+    unlist()
+} else {
+  report$catch_next_cycle <- 0
+}
+
+report$send_60_day_notice <- 0
+
+if (exists("initial_report_date")) {
+  report$send_60_day_notice <- 0
+} else {
+  for (i in 1:nrow(report)) {
+    if (report$missing_exp[[i]] != "" ||
+        report$missing_rev[[i]] != "" ||
+        report$missing_w2[[i]]  != "") {
+      report$send_60_day_notice[[i]] <- 1
+    } else {
+          report$send_60_day_notice[[i]] <- 0
+      }
+  }
+}
 
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
-"Consider compliant; uploaded file(s) waiting to be processed."
+  "Consider compliant; uploaded file(s) waiting to be processed."
 
 report[report[ , "upload_in_queue"] == 0, "note_1"] <- 
-""
+  ""
 
 report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <- 
   "Consider compliant; temporary exemption granted."
@@ -1556,12 +1582,23 @@ report$report_date <-
   report$report_date %>% 
   format("%m/%d/%Y")
 
+report$last_processed_batch <- 
+  report$last_processed_batch %>% 
+  as.Date() %>% 
+  format("%m/%d/%Y")
+
+report$last_uploaded_batch <- 
+  report$last_uploaded_batch %>% 
+  as.Date() %>% 
+  format("%m/%d/%Y")
+
 compliance_report <- 
   report %>% 
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
-         unexpired_temporary_exemption, upload_in_queue, 
-         still_missing_noticed_report, catch_next_cycle, analyst_note)
+         unexpired_temporary_exemption, upload_in_queue, grace_period_expired,
+         still_missing_noticed_report, catch_next_cycle, send_60_day_notice, 
+         analyst_note)
 
 file_name <- paste0(Sys.Date(),".csv")
 
@@ -1578,7 +1615,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(437, 1492, 623, 1496, 1635, 1634, 259, 221, 223, 833, 25, 283, 41, 205, 1175, 227, 107, 151, 153, 49)
+  c(1159, 437, 1492, 623)
 
 report <- 
   sf_info %>% 
@@ -1640,6 +1677,10 @@ report$missing_w2 <-
        reports_with_parent = exemptions[["reports_with_parent"]]) %>% 
   unlist()
 
+
+report$still_missing_noticed_exp <- 0
+report$still_missing_noticed_rev <- 0
+report$still_missing_noticed_w2  <- 0
 report$still_missing_noticed_report <- 0
 
 if (exists("initial_report_date")) {
@@ -1676,7 +1717,7 @@ if (exists("initial_report_date")) {
       
     } else if (report$still_missing_noticed_exp[[i]] == 0 &&
                report$still_missing_noticed_rev[[i]] == 0 &&
-               report$still_missing_noticed_w2[[i]] == 0) {
+               report$still_missing_noticed_w2[[i]]  == 0) {
       
       report$still_missing_noticed_report[[i]] <- 0
     }
@@ -1686,20 +1727,42 @@ if (exists("initial_report_date")) {
   report$still_missing_noticed_report <- 0
 }
 
+rm(still_missing_noticed_exp, still_missing_noticed_rev, 
+   still_missing_noticed_w2)
+
 if (exists("initial_report_date") &&
     today() > initial_report_date + days(60)) {
   report$grace_period_expired <- 1
-  
 } else {
-    report$grace_period_expired <- 0
+  report$grace_period_expired <- 0
 }
 
-report$catch_next_cycle <- 
-  report$salesforce_id %>%
-  map_dbl(catch_during_next_cycle, 
-          initial_report_date = initial_report_date,
-          sf_status_history = sf_status_history) %>% 
-  unlist()
+if (exists("initial_report_date")) {
+  report$catch_next_cycle <- 
+    report$salesforce_id %>%
+    map_dbl(catch_during_next_cycle, 
+            initial_report_date = initial_report_date,
+            sf_status_history = sf_status_history) %>% 
+    unlist()
+} else {
+  report$catch_next_cycle <- 0
+}
+
+report$send_60_day_notice <- 0
+
+if (exists("initial_report_date")) {
+  report$send_60_day_notice <- 0
+} else {
+  for (i in 1:nrow(report)) {
+    if (report$missing_exp[[i]] != "" ||
+        report$missing_rev[[i]] != "" ||
+        report$missing_w2[[i]]  != "") {
+      report$send_60_day_notice[[i]] <- 1
+    } else {
+          report$send_60_day_notice[[i]] <- 0
+      }
+  }
+}
 
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
   "Consider compliant; uploaded file(s) waiting to be processed."
@@ -1744,7 +1807,8 @@ compliance_report <-
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
          unexpired_temporary_exemption, upload_in_queue, grace_period_expired,
-         still_missing_noticed_report, catch_next_cycle, analyst_note)
+         still_missing_noticed_report, catch_next_cycle, send_60_day_notice, 
+         analyst_note)
 
 file_name <- paste0("Okay to Hold Review",".csv")
 
