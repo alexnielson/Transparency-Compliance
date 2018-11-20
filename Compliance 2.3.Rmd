@@ -1522,9 +1522,9 @@ rm(still_missing_noticed_exp, still_missing_noticed_rev,
 
 if (exists("initial_report_date") &&
     today() > initial_report_date + days(60)) {
-  report$grace_period_expired <- 1
+  report$within_grace_period <- 0
 } else {
-  report$grace_period_expired <- 0
+  report$within_grace_period <- 1
 }
 
 if (exists("initial_report_date")) {
@@ -1596,7 +1596,7 @@ compliance_report <-
   report %>% 
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
-         unexpired_temporary_exemption, upload_in_queue, grace_period_expired,
+         unexpired_temporary_exemption, upload_in_queue, within_grace_period,
          still_missing_noticed_report, catch_next_cycle, send_60_day_notice, 
          analyst_note)
 
@@ -1732,9 +1732,9 @@ rm(still_missing_noticed_exp, still_missing_noticed_rev,
 
 if (exists("initial_report_date") &&
     today() > initial_report_date + days(60)) {
-  report$grace_period_expired <- 1
+  report$within_grace_period <- 0
 } else {
-  report$grace_period_expired <- 0
+  report$within_grace_period <- 1
 }
 
 if (exists("initial_report_date")) {
@@ -1807,7 +1807,7 @@ compliance_report <-
   select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
          last_uploaded_batch, last_processed_batch, 
          unexpired_temporary_exemption, send_60_day_notice, 
-         still_missing_noticed_report, grace_period_expired, upload_in_queue, 
+         still_missing_noticed_report, within_grace_period, upload_in_queue, 
          catch_next_cycle, analyst_note)
 
 file_name <- paste0("Okay to Hold Review",".csv")
