@@ -1513,12 +1513,12 @@ if (exists("initial_report_date")) {
     }
   }
   rm(i)
+  
+  rm(still_missing_noticed_exp, still_missing_noticed_rev, 
+   still_missing_noticed_w2)
 } else {
   report$still_missing_noticed_report <- 0
 }
-
-rm(still_missing_noticed_exp, still_missing_noticed_rev, 
-   still_missing_noticed_w2)
 
 if (exists("initial_report_date") &&
     today() > initial_report_date + days(60)) {
@@ -1552,6 +1552,7 @@ if (exists("initial_report_date")) {
           report$send_60_day_notice[[i]] <- 0
       }
   }
+  rm(i)
 }
 
 report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
