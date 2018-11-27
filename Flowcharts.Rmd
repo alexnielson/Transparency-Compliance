@@ -6,7 +6,7 @@ output:
     fig_width: 8.5
     fig_height: 11
 editor_options: 
-  chunk_output_type: inline
+  chunk_output_type: console
 ---
 ```{r, echo = FALSE}
 library(DiagrammeR)
@@ -141,35 +141,42 @@ edge [tailport = s
 ```{r, echo = FALSE}
 grViz(" digraph {
 
-graph [label = 'Determine Compliance Status'
+graph [label = 'Determine Transparency Compliance Status'
        labelloc = top
        rankdir = TB
        fontsize = 16]
 
 node [shape = box
-      fontsizte = 12]
+      fontsize = 12]
   'Update during next compliance check'
 
 node [color = ForestGreen]
-  R
-  'Required reports submitted?'
+  'Entity submitted required reports?'
   1 [label = 'Yes']
   2 [label = 'No']
-  'File uploaded or temporary exemption granted?'
+  'Day one of a compliance cycle, or entity missing a 60-day noticed report?'
   3 [label = 'Yes']
   4 [label = 'No']
-  '60-day Notice sent?'
-  5 [label = 'Yes']
-  6 [label = 'No']
-
-node [color = DodgerBlue]
-  Salesforce  
-  '60-day Grace Period expired?'
+  'Unexpired temporary exemption?'  
   7 [label = 'Yes']
   8 [label = 'No']
+  'Within grace period?'
+  9 [label = 'Yes']
+  10 [label = 'No']
+  'Upload in queue?'
+  11 [label = 'Yes']
+  12 [label = 'No']
+  'Hold previously removed due to uploaded batch?'
+  13 [label = 'Yes']
+  14 [label = 'No']
+  R
+  
+node [color = DodgerBlue]
+  Salesforce  
   'T Status: Current' 
   'T Status: On Hold' 
-  'T Status: Delinquent'
+  'T Status: Delinquent, Not Enforced'
+  'T Status: Delinquent, Enforced'
   'OSA Status: Current' 
   'OSA Status: Delinquent' 
   'OSA Status: On Hold'
@@ -178,50 +185,76 @@ node [style = invis
       color = White]
   100
 
-{rank = same; 'Required reports submitted?'; R}
-{rank = same; '60-day Grace Period expired?'; Salesforce}
 {rank = same; 1; 2}
-{rank = same; 3; 4}
-{rank = same; 5; 6}
+{rank = same; 3; 4;}
 {rank = same; 7; 8}
-{rank = same; 'T Status: Current' 'T Status: Delinquent' 'T Status: On Hold'}
-{rank = same; 'OSA Status: Current'; 'OSA Status: Delinquent'; 
-  'OSA Status: On Hold'}
-{rank = same; 'Update during next compliance check'; 100}
-{rank = sink; 'Update during next compliance check'}
+{rank = same; 9; 10}
+{rank = same; 11; 12}
+{rank = same; 13; 14}
+{rank = same; 'Send 60-day notice';
+              'Within grace period?'}
+{rank = same; 'T Status: Current'; 
+              'T Status: On Hold'; 
+              'T Status: Delinquent, Not Enforced'; 
+              'T Status: Delinquent, Enforced';
+              Salesforce}
+{rank = same; 'OSA Status: Current';
+              'OSA Status: Delinquent';
+              'OSA Status: On Hold'}
+{rank = same; 'Entity submitted required reports?';
+              R}
+{rank = same; 'Update during next compliance check';
+              100}
 
 edge [tailport = s
       headport = n]
-  'Required reports submitted?'
+  'Entity submitted required reports?'
     -> {1 2}
   1
-    -> 'T Status: Current' 
-    -> 'OSA Status: Current'
-    -> 'Update during next compliance check'
-  2 
-    -> 'File uploaded or temporary exemption granted?' 
+    -> 'T Status: Current'
+  2
+    -> 'Day one of a compliance cycle, or entity missing a 60-day noticed report?'
     -> {3 4}
   3
-    -> 'T Status: Current'
-  4
-    -> '60-day Notice sent?' 
-    -> {5 6}
-  5
-    -> '60-day Grace Period expired?' 
+    -> 'Unexpired temporary exemption?'
     -> {7 8}
+  4
+    -> 'T Status: Delinquent, Not Enforced'
   7
-    -> 'T Status: On Hold' 
+    -> 'T Status: Delinquent, Not Enforced'
+  8
+    -> 'Within grace period?'
+    -> {9 10}
+  9
+    -> 'T Status: Delinquent, Enforced'
+  10
+    -> 'Upload in queue?'
+    -> {11 12}
+  11
+    -> 'T Status: Delinquent, Not Enforced'
+  12
+    -> 'Hold previously removed due to uploaded batch?'
+    -> {13 14}
+  13
+    -> 'T Status: Delinquent, Not Enforced'
+  14
+    -> 'T Status: On Hold'
+
+  {'T Status: Current';
+   'T Status: Delinquent, Not Enforced'}
+    -> 'OSA Status: Current'
+  'T Status: Delinquent, Enforced'
+    -> 'OSA Status: Delinquent' 
+  'T Status: On Hold'
     -> 'OSA Status: On Hold'
-    -> 'Update during next compliance check'
-  {6 8}
-    -> 'T Status: Delinquent' 
-    -> 'OSA Status: Delinquent'
+
+  {'OSA Status: Current';
+   'OSA Status: Delinquent';
+   'OSA Status: On Hold'}
     -> 'Update during next compliance check'
 
-edge [tailport = s
-      headport = n]
   R
-    -> Salesforce 
+    -> Salesforce
     -> 100
 }")
 ```
