@@ -141,9 +141,7 @@ edge [tailport = s
 ```{r, echo = FALSE}
 grViz(" digraph {
 
-graph [label = 'Determine Transparency Compliance Status'
-       labelloc = top
-       rankdir = TB
+graph [rankdir = TB
        fontsize = 16]
 
 node [shape = box
