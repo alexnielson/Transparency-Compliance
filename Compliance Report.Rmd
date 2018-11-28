@@ -1,5 +1,5 @@
 ---
-title: "Transparency Compliance 2.4"
+title: "Transparency Compliance"
 author: "Michael Jensen"
 date: "November 2018"
 output: html_notebook
@@ -21,17 +21,11 @@ User input is required for the following:
 * The date of the initial report of the compliance cycle if this is not the initial report.
 * The DSN name for the Salesforce and AWS ODBCs.
 
-<<<<<<< HEAD:Compliance 2.3.Rmd
-Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a single government or a handful of governments.
-
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-initial_report_date <- as.character("8/1/2018")
+# initial_report_date <- as.character("8/1/2018")
 ```
-=======
-Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a subset of all active and participating local governments.
->>>>>>> 6a32d73a87e3d39f1695af553936675358ea3896:Compliance Report.Rmd
 
 ```{r, warning=FALSE, message=FALSE}
 library(lubridate)
@@ -44,11 +38,7 @@ odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
 odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
 ```
 
-```{r}
-# Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
-
-# initial_report_date <- mdy("11/19/2018")
-```
+Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a subset of all active and participating local governments.
 
 ## Functions
 
