@@ -1117,10 +1117,6 @@ if (exists("initial_report_date")) {
                 Analyst_Notes__c
               FROM Transparency_Reporting__c) t
             LEFT JOIN Account a
-<<<<<<< HEAD:Compliance 2.3.Rmd
-            ON t.Account__c = a.Id")) %>%
-    filter(report_date == initial_report_date, 
-=======
             ON t.Account__c = a.Id"))
   
   initial_report$report_date <- 
@@ -1130,7 +1126,6 @@ if (exists("initial_report_date")) {
   initial_report <- 
     initial_report %>% 
     filter(report_date == initial_report_date,
->>>>>>> 6a32d73a87e3d39f1695af553936675358ea3896:Compliance Report.Rmd
            upload_in_queue == FALSE)
 }
 ```
@@ -1624,11 +1619,7 @@ compliance_report %>%
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-<<<<<<< HEAD:Compliance 2.3.Rmd
-  c(1485)
-=======
   c(1159, 437, 1492, 623)
->>>>>>> 6a32d73a87e3d39f1695af553936675358ea3896:Compliance Report.Rmd
 
 report <- 
   sf_info %>% 
@@ -1826,18 +1817,6 @@ compliance_report <-
          unexpired_temporary_exemption, upload_in_queue, within_grace_period,
          still_missing_noticed_report, catch_next_cycle, send_60_day_notice, 
          analyst_note)
-
-file_name <- paste0("Okay to Hold Review",".csv")
-
-file_path <- 
-  paste0(getwd(), "/")
-
-compliance_report %>% 
-  write.csv(
-    file = paste0(file_path, file_name),
-    row.names = FALSE)
-
-compliance_report
 ```
 
 # Close
