@@ -24,7 +24,7 @@ User input is required for the following:
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-# initial_report_date <- as.character("8/1/2018")
+initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1524,7 +1524,7 @@ if (exists("initial_report_date")) {
 }
 
 if (exists("initial_report_date") &&
-    today() > initial_report_date + days(60)) {
+    today() > mdy(initial_report_date) + days(60)) {
   report$within_grace_period <- 0
 } else {
   report$within_grace_period <- 1
@@ -1534,7 +1534,7 @@ if (exists("initial_report_date")) {
   report$catch_next_cycle <- 
     report$salesforce_id %>%
     map_dbl(catch_during_next_cycle, 
-            initial_report_date = initial_report_date,
+            initial_report_date = mdy(initial_report_date),
             sf_status_history = sf_status_history) %>% 
     unlist()
 } else {
@@ -1625,7 +1625,7 @@ ORDER BY name
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1492)
+  c(1481)
 
 report <- 
   sf_info %>% 
@@ -1744,7 +1744,7 @@ if (exists("initial_report_date")) {
 }
 
 if (exists("initial_report_date") &&
-    today() > initial_report_date + days(60)) {
+    today() > mdy(initial_report_date) + days(60)) {
   report$within_grace_period <- 0
 } else {
   report$within_grace_period <- 1
@@ -1754,7 +1754,7 @@ if (exists("initial_report_date")) {
   report$catch_next_cycle <- 
     report$salesforce_id %>%
     map_dbl(catch_during_next_cycle, 
-            initial_report_date = initial_report_date,
+            initial_report_date = mdy(initial_report_date),
             sf_status_history = sf_status_history) %>% 
     unlist()
 } else {
