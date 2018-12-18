@@ -569,8 +569,7 @@ catch_during_next_cycle <- function(sf_id, initial_report_date, sf_status_histor
   
   # Arguments:
   # - sf_id: The entity's Salesforce ID.
-  # - 
-  
+
   # Returns:
   # - 1 if the entity has at least one "Okay" status following the 60-day grace
   #   period and 0 otherwise.
@@ -1120,12 +1119,11 @@ if (exists("initial_report_date")) {
             ON t.Account__c = a.Id"))
   
   initial_report$report_date <- 
-    initial_report$report_date %>%
-    mdy()
+    as.Date(initial_report$report_date, format = "%m/%d/%Y")
   
   initial_report <- 
     initial_report %>% 
-    filter(report_date == initial_report_date,
+    filter(report_date == mdy(initial_report_date),
            upload_in_queue == FALSE)
 }
 ```
@@ -1625,7 +1623,7 @@ ORDER BY name
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1481)
+  c(1509)
 
 report <- 
   sf_info %>% 
