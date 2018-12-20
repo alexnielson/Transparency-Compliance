@@ -1512,8 +1512,6 @@ if (exists("initial_report_date")) {
   }
   rm(i)
   
-  rm(still_missing_noticed_exp, still_missing_noticed_rev, 
-   still_missing_noticed_w2)
 } else {
   
   # still_missing_notice_report should be set to 1 on the initial report of the
@@ -1732,8 +1730,6 @@ if (exists("initial_report_date")) {
   }
   rm(i)
   
-  rm(still_missing_noticed_exp, still_missing_noticed_rev, 
-   still_missing_noticed_w2)
 } else {
   
   # still_missing_notice_report should be set to 1 on the initial report of the
