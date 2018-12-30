@@ -1,7 +1,6 @@
 ---
 title: "Transparency Compliance Report"
 author: "Michael Jensen"
-date: "November 2018"
 output: html_notebook
 ---
 # Program Description
@@ -24,7 +23,7 @@ User input is required for the following:
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-initial_report_date <- as.character("8/1/2018")
+# initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1566,11 +1565,16 @@ report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <-
 report[report[ , "unexpired_temporary_exemption"] == 0, "note_2"] <- 
   ""
 
-report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
-  "Still missing a report the entity was noticed for."
+if (exists("initial_report_date")) {
+  report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
+    "Still missing a report the entity was noticed for."
 
-report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
-  ""
+  report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
+    ""
+} else {
+  report[ , "note_3"] <- 
+    "still_missing_noticed_report set equal to 1 on the initial report, in order to enable Salesforce logic."
+}
 
 report$analyst_note <- 
   paste(report$note_1, report$note_2, report$note_3)
@@ -1621,7 +1625,7 @@ ORDER BY name
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1509)
+  c(379)
 
 report <- 
   sf_info %>% 
@@ -1784,11 +1788,16 @@ report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <-
 report[report[ , "unexpired_temporary_exemption"] == 0, "note_2"] <- 
   ""
 
-report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
-  "Still missing a report the entity was noticed for."
+if (exists("initial_report_date")) {
+  report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
+    "Still missing a report the entity was noticed for."
 
-report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
-  ""
+  report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
+    ""
+} else {
+  report[ , "note_3"] <- 
+    "still_missing_noticed_report set equal to 1 on the initial report, in order to enable Salesforce logic."
+}
 
 report$analyst_note <- 
   paste(report$note_1, report$note_2, report$note_3)
