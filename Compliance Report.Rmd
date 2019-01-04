@@ -5,7 +5,7 @@ output: html_notebook
 ---
 # Program Description
 
-For active and participating governments that OSA will monitor for Transparency compliance, report the fiscal periods for which the government does not have a permanent reporting exemption and has not complied with the following reporting requirements:
+For the active and participating governments that OSA monitors for compliance with Transparency reporting requirements, report the fiscal periods for which the government does not have a permanent reporting exemption and has not complied with the following reporting requirements:
 
 * One processed expense transaction per fiscal quarter.
 * One processed revenue transaction per fiscal quarter.
@@ -23,7 +23,7 @@ User input is required for the following:
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-# initial_report_date <- as.character("8/1/2018")
+initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -570,8 +570,8 @@ catch_during_next_cycle <- function(sf_id, initial_report_date, sf_status_histor
   # - sf_id: The entity's Salesforce ID.
 
   # Returns:
-  # - 1 if the entity has at least one "Okay" status following the 60-day grace
-  #   period and 0 otherwise.
+  # - 1 if the entity has uploaded a batch following the 60-day grace period and 0 
+  #   otherwise.
   # - 0 if the date of the report is during the 60-day grace period.
   
   if (today() <= initial_report_date + days(60)) {
@@ -579,10 +579,9 @@ catch_during_next_cycle <- function(sf_id, initial_report_date, sf_status_histor
   } else {
     transparency_status_history <- 
       sf_status_history %>% 
-      filter(salesforce_id == sf_id) %>% 
-      filter(valid_from_date > initial_report_date + days(60))
+      filter(salesforce_id == sf_id)
     
-    if ("Okay" %in% transparency_status_history$status) {
+    if (any(transparency_status_history$last_uploaded_batch > (initial_report_date + days(60)), na.rm = TRUE)) {
       1
     } else {
       0
@@ -1051,9 +1050,10 @@ OR Expense_Revenue_Start_Date__c IS NULL)
 
 ```{sql, connection=odbc_sf, output.var="sf_status_history"}
 SELECT
-    ValidFromDate  AS valid_from_date, 
-    Account__c_hst AS salesforce_id,
-    Status__c_hst  AS status
+    ValidFromDate                      AS valid_from_date, 
+    Account__c_hst                     AS salesforce_id,
+    Status__c_hst                      AS status,
+    Date_of_Last_Uploaded_Batch__c_hst AS last_uploaded_batch
 FROM Transparency_Reporting__c_hd
 ```
 
@@ -1136,7 +1136,7 @@ sf_info <-
 sf_status_history <- 
   sf_status_history %>% 
   left_join(sf_local_gov_info, by = "salesforce_id") %>% 
-  select(name, salesforce_id, status, valid_from_date)
+  select(name, salesforce_id, status, valid_from_date, last_uploaded_batch)
 
 sf_exemptions %<>%
   as_tibble()
@@ -1625,7 +1625,7 @@ ORDER BY name
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(379)
+  c(1467)
 
 report <- 
   sf_info %>% 
@@ -1833,6 +1833,4 @@ compliance_report <-
 ```{r}
 dbDisconnect(odbc_sf)
 dbDisconnect(odbc_aws)
-
-rm(list = ls())
 ```
