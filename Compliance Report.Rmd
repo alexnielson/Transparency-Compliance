@@ -1625,7 +1625,7 @@ ORDER BY name
 
 ```{r, eval=FALSE}
 vector_of_t_ids <- 
-  c(1467)
+  c(1614)
 
 report <- 
   sf_info %>% 
@@ -1765,9 +1765,15 @@ if (exists("initial_report_date")) {
   report$send_60_day_notice <- 0
 } else {
   for (i in 1:nrow(report)) {
-    if (report$missing_exp[[i]] != "" ||
+    
+    # Alex programmed Salesforce to not send a 60-day notice to a government if 
+    # that government has an unexpired temporary exemption, despite missing a 
+    # required Transparency report. In order to avoid confusion, I've reflected
+    # that feature in this code as well.
+    if (report$unexpired_temporary_exemption[[i]] == 0 && (
+        report$missing_exp[[i]] != "" ||
         report$missing_rev[[i]] != "" ||
-        report$missing_w2[[i]]  != "") {
+        report$missing_w2[[i]]  != "")) {
       report$send_60_day_notice[[i]] <- 1
     } else {
           report$send_60_day_notice[[i]] <- 0
