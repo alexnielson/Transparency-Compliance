@@ -1510,8 +1510,6 @@ for (i in 1:nrow(report)) {
     }
   }
   rm(i)
-<<<<<<< HEAD
-=======
   
   rm(still_missing_noticed_exp, still_missing_noticed_rev, 
    still_missing_noticed_w2)
@@ -1520,7 +1518,6 @@ for (i in 1:nrow(report)) {
   # still_missing_notice_report should be set to 1 on the initial report of the
   # compliance cycle in order to help Salesforce logic.
   report$still_missing_noticed_report <- 1
->>>>>>> parent of a32e388... Removed code that referred to objects that don't exist. I meant to have the code remove the still_missing_noticed_* columns from the report data frame, but used rm() to do so, which is incorrect. As I use select() to pull the columns I want from report, it doesn't matter whether I remove those columns.
 }
 
 if (exists("initial_report_date") &&
@@ -1735,8 +1732,6 @@ if (exists("initial_report_date")) {
     }
   }
   rm(i)
-<<<<<<< HEAD
-=======
   
   rm(still_missing_noticed_exp, still_missing_noticed_rev, 
    still_missing_noticed_w2)
@@ -1745,7 +1740,6 @@ if (exists("initial_report_date")) {
   # still_missing_notice_report should be set to 1 on the initial report of the
   # compliance cycle in order to help Salesforce logic.
   report$still_missing_noticed_report <- 1
->>>>>>> parent of a32e388... Removed code that referred to objects that don't exist. I meant to have the code remove the still_missing_noticed_* columns from the report data frame, but used rm() to do so, which is incorrect. As I use select() to pull the columns I want from report, it doesn't matter whether I remove those columns.
 }
 
 if (exists("initial_report_date") &&
