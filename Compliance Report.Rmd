@@ -1477,9 +1477,9 @@ report$missing_w2 <-
   unlist()
 
 
-report$still_missing_noticed_exp <- 0
-report$still_missing_noticed_rev <- 0
-report$still_missing_noticed_w2  <- 0
+report$still_missing_noticed_exp    <- 0
+report$still_missing_noticed_rev    <- 0
+report$still_missing_noticed_w2     <- 0
 report$still_missing_noticed_report <- 0
 
 if (exists("initial_report_date")) {
@@ -1554,10 +1554,12 @@ if (exists("initial_report_date")) {
     if (report$missing_exp[[i]] != "" ||
         report$missing_rev[[i]] != "" ||
         report$missing_w2[[i]]  != "") {
+      
       report$send_60_day_notice[[i]] <- 1
+      
     } else {
-          report$send_60_day_notice[[i]] <- 0
-      }
+      report$send_60_day_notice[[i]] <- 0
+    }
   }
   rm(i)
 }
