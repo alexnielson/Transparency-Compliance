@@ -1574,13 +1574,11 @@ report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <-
 report[report[ , "unexpired_temporary_exemption"] == 0, "note_2"] <- 
   ""
 
-if (exists("initial_report_date")) {
-  report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
-    "Still missing a report the entity was noticed for."
+report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
+  "Still missing a report the entity was noticed for."
 
-  report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
-    ""
-}
+report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
+  ""
 
 report$analyst_note <- 
   paste(report$note_1, report$note_2, report$note_3)
