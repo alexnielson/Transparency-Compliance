@@ -1404,8 +1404,6 @@ rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev,
 
 # Program - Compliance Reports
 
-## Compliance Report
-
 ```{sql, connection=odbc_aws, output.var=entity_table}
 SELECT name, id
 FROM entity
@@ -1527,11 +1525,6 @@ for (i in 1:nrow(report)) {
   
   rm(still_missing_noticed_exp, still_missing_noticed_rev, 
    still_missing_noticed_w2)
-} else {
-  
-  # still_missing_notice_report should be set to 1 on the initial report of the
-  # compliance cycle in order to help Salesforce logic.
-  report$still_missing_noticed_report <- 1
 }
 
 if (exists("initial_report_date") &&
