@@ -1404,9 +1404,23 @@ rm(sf_exemptions, permanent_exempt_exp, permanent_exempt_rev,
 
 # Program - Compliance Reports
 
-## Compliance Report - All Governments
+## Compliance Report
+
+```{sql, connection=odbc_aws, output.var=entity_table}
+SELECT name, id
+FROM entity
+ORDER BY name
+```
 
 ```{r}
+# vector_of_t_ids <- 
+#   c(1469)
+# 
+# report <- 
+#   sf_info %>% 
+#   filter(transparency_id %in% vector_of_t_ids) %>% 
+#   as_tibble()
+
 report <- as_tibble(sf_info)
 
 report$upload_in_queue <- 
@@ -1612,224 +1626,6 @@ compliance_report %>%
   write.csv(
     file = paste0(file_path, file_name),
     row.names = FALSE)
-```
-
-## Compliance Report - Select Governments
-
-```{sql, connection=odbc_aws, output.var=entity_table}
-SELECT name, id
-FROM entity
-ORDER BY name
-```
-
-```{r, eval=FALSE}
-vector_of_t_ids <- 
-  c(1614)
-
-report <- 
-  sf_info %>% 
-  filter(transparency_id %in% vector_of_t_ids) %>% 
-  as_tibble()
-
-report$upload_in_queue <- 
-  report$transparency_id %>% 
-  map_dbl(query_uploaded_batches) %>% 
-  unlist()
-
-report$last_uploaded_batch <- 
-  map_chr(
-  report$transparency_id,
-  query_last_uploaded_batch) %>% 
-  unlist()
-
-report$last_processed_batch <- 
-  map_chr(
-  report$transparency_id,
-  query_last_processed_batch) %>% 
-  unlist()
-
-report$unexpired_temporary_exemption <- 
-  report$salesforce_id %>% 
-  map_dbl(mark_entities_with_temporary_exemptions,
-          exemptions[["unexpired_temporary_exemptions"]])%>% 
-  unlist()
-
-report$missing_exp <- 
-  list(transparency_id      = as.list(report$transparency_id),
-       begin_report_exp_rev = as.list(report$begin_report_exp_rev),
-       current_fy_begin     = as.list(report$fiscal_year_begin),
-       salesforce_id        = as.list(report$salesforce_id)) %>% 
-  pmap(report_missing_exp_or_rev,
-       transaction_type     = 1,
-       exempt_periods       = exemptions[["exempt_exp"]],
-       reports_with_parent  = exemptions[["reports_with_parent"]]) %>% 
-  unlist()
-
-report$missing_rev <- 
-  list(transparency_id      = as.list(report$transparency_id),
-       begin_report_exp_rev = as.list(report$begin_report_exp_rev),
-       current_fy_begin     = as.list(report$fiscal_year_begin),
-       salesforce_id        = as.list(report$salesforce_id)) %>% 
-  pmap(report_missing_exp_or_rev,
-       transaction_type     = 2,
-       exempt_periods       = exemptions[["exempt_rev"]],
-       reports_with_parent  = exemptions[["reports_with_parent"]]) %>% 
-  unlist()
-
-report$missing_w2 <- 
-  list(transparency_id  = as.list(report$transparency_id),
-       current_fy_begin = as.list(report$fiscal_year_begin),
-       salesforce_id    = as.list(report$salesforce_id),
-       begin_report_w2  = as.list(report$begin_report_w2)) %>% 
-  pmap(report_missing_w2,
-       exempt_w2           = exemptions[["exempt_w2"]],
-       reports_with_parent = exemptions[["reports_with_parent"]]) %>% 
-  unlist()
-
-
-report$still_missing_noticed_exp <- 0
-report$still_missing_noticed_rev <- 0
-report$still_missing_noticed_w2  <- 0
-report$still_missing_noticed_report <- 0
-
-if (exists("initial_report_date")) {
-  report$still_missing_noticed_exp <- 
-    report$salesforce_id %>% 
-    map_dbl(detect_reports_still_missing,
-            transaction_type = 1,
-            new_report = report,
-            old_report = initial_report) %>% 
-    unlist()
-
-  report$still_missing_noticed_rev <- 
-    report$salesforce_id %>% 
-    map_dbl(detect_reports_still_missing,
-            transaction_type = 2,
-            new_report = report,
-            old_report = initial_report) %>% 
-    unlist()
-  
-  report$still_missing_noticed_w2 <- 
-    report$salesforce_id %>% 
-    map_dbl(detect_reports_still_missing,
-            transaction_type = 3,
-            new_report = report,
-            old_report = initial_report) %>% 
-    unlist()
-  
-  for (i in 1:nrow(report)) {
-    if (report$still_missing_noticed_exp[[i]] == 1 ||
-        report$still_missing_noticed_rev[[i]] == 1 ||
-        report$still_missing_noticed_w2[[i]]  == 1) {
-      
-      report$still_missing_noticed_report[[i]] <- 1
-      
-    } else if (report$still_missing_noticed_exp[[i]] == 0 &&
-               report$still_missing_noticed_rev[[i]] == 0 &&
-               report$still_missing_noticed_w2[[i]]  == 0) {
-      
-      report$still_missing_noticed_report[[i]] <- 0
-    }
-  }
-  rm(i)
-  
-  rm(still_missing_noticed_exp, still_missing_noticed_rev, 
-   still_missing_noticed_w2)
-} else {
-  
-  # still_missing_notice_report should be set to 1 on the initial report of the
-  # compliance cycle in order to help Salesforce logic.
-  report$still_missing_noticed_report <- 1
-}
-
-if (exists("initial_report_date") &&
-    today() > mdy(initial_report_date) + days(60)) {
-  report$within_grace_period <- 0
-} else {
-  report$within_grace_period <- 1
-}
-
-if (exists("initial_report_date")) {
-  report$catch_next_cycle <- 
-    report$salesforce_id %>%
-    map_dbl(catch_during_next_cycle, 
-            initial_report_date = mdy(initial_report_date),
-            sf_status_history = sf_status_history) %>% 
-    unlist()
-} else {
-  report$catch_next_cycle <- 0
-}
-
-report$send_60_day_notice <- 0
-
-if (exists("initial_report_date")) {
-  report$send_60_day_notice <- 0
-} else {
-  for (i in 1:nrow(report)) {
-    
-    # Alex programmed Salesforce to not send a 60-day notice to a government if 
-    # that government has an unexpired temporary exemption, despite missing a 
-    # required Transparency report. In order to avoid confusion, I've reflected
-    # that feature in this code as well.
-    if (report$unexpired_temporary_exemption[[i]] == 0 && (
-        report$missing_exp[[i]] != "" ||
-        report$missing_rev[[i]] != "" ||
-        report$missing_w2[[i]]  != "")) {
-      report$send_60_day_notice[[i]] <- 1
-    } else {
-          report$send_60_day_notice[[i]] <- 0
-      }
-  }
-  rm(i)
-}
-
-report[report[ , "upload_in_queue"] == 1, "note_1"] <- 
-  "Consider compliant; uploaded file(s) waiting to be processed."
-
-report[report[ , "upload_in_queue"] == 0, "note_1"] <- 
-  ""
-
-report[report[ , "unexpired_temporary_exemption"] == 1, "note_2"] <- 
-  "Consider compliant; temporary exemption granted."
-
-report[report[ , "unexpired_temporary_exemption"] == 0, "note_2"] <- 
-  ""
-
-if (exists("initial_report_date")) {
-  report[report[ , "still_missing_noticed_report"] == 1, "note_3"] <- 
-    "Still missing a report the entity was noticed for."
-
-  report[report[ , "still_missing_noticed_report"] == 0, "note_3"] <- 
-    ""
-}
-
-report$analyst_note <- 
-  paste(report$note_1, report$note_2, report$note_3)
-
-report$report_date <- 
-  Sys.Date()
-
-report$report_date <- 
-  report$report_date %>% 
-  format("%m/%d/%Y")
-
-report$last_processed_batch <- 
-  report$last_processed_batch %>% 
-  as.Date() %>% 
-  format("%m/%d/%Y")
-
-report$last_uploaded_batch <- 
-  report$last_uploaded_batch %>% 
-  as.Date() %>% 
-  format("%m/%d/%Y")
-
-compliance_report <- 
-  report %>% 
-  select(report_date, name, salesforce_id, missing_exp, missing_rev, missing_w2,
-         last_uploaded_batch, last_processed_batch, 
-         unexpired_temporary_exemption, upload_in_queue, within_grace_period,
-         still_missing_noticed_report, catch_next_cycle, send_60_day_notice, 
-         analyst_note)
 ```
 
 # Close
