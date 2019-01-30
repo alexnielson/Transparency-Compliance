@@ -554,34 +554,37 @@ find_end_w2_fy <- function(current_fy_begin) {
 #### catch_during_next_cycle
 
 ```{r}
-catch_during_next_cycle <- function(sf_id, initial_report_date, sf_status_history) {
-  # We decided to release an LG's money when we see a batch in UPLOADED status.
-  # This means, however, that an LG may upload a batch that does not contain the
-  # missing report we sent a notice for. In this situation, we decided that we 
-  # would wait until the next compliance cycle to catch the missing report. This 
-  # means, however, that some LGs show up every week after the 60-day grace period
-  # as being delinquent and we have to manually remove the delinqency. In order to
-  # reduce the likelihood of errors in the manual review process, I created this 
-  # function. If the LG uploads a batch to Transparency and thus considered 
-  # current, we will not move the LG back to being on hold until the next 
-  # compliance cycle.
-  
+catch_during_next_cycle <- function(sf_id, 
+                                    initial_report_date, 
+                                    sf_status_history) {
+  # Determine whether an entity that is still missing a noticed report has had
+  # its hold removed due to a previously uploaded batch. If so, the batch did 
+  # not contain the missing report and we will notice and enforce the missing
+  # period during the next compliance cycle.
+  #
   # Arguments:
-  # - sf_id: The entity's Salesforce ID.
-
+  #   sf_id (character): The entity's Salesforce ID.
+  #   initial_report_date (character): The date of the initial report of the 
+  #     compliance cycle.
+  #   sf_status_history (df): The dataframe containing entity Transparency 
+  #     status information imported from Salesforce.
+  # 
   # Returns:
-  # - 1 if the entity has uploaded a batch following the 60-day grace period and 0 
-  #   otherwise.
-  # - 0 if the date of the report is during the 60-day grace period.
+  #   1 if the entity has at least one status of "Okay" following the 60-day
+  #     grace period.
+  #   0 if the entity does not have at least one status of "Okay" following the
+  #     60-day grace period, or if the date of the compliance report is during
+  #     the 60-day grace period.
   
   if (today() <= initial_report_date + days(60)) {
     0
   } else {
-    transparency_status_history <- 
+    status_history <- 
       sf_status_history %>% 
-      filter(salesforce_id == sf_id)
+      filter(salesforce_id == sf_id &
+             valid_from_date > initial_report_date + days(60))
     
-    if (any(transparency_status_history$last_uploaded_batch > (initial_report_date + days(60)), na.rm = TRUE)) {
+    if ("Okay" %in% status_history$status) {
       1
     } else {
       0
@@ -1411,12 +1414,12 @@ ORDER BY name
 ```
 
 ```{r}
-# vector_of_t_ids <- 
-#   c(1469)
+# vector_of_t_ids <-
+#   c(1509)
 # 
-# report <- 
-#   sf_info %>% 
-#   filter(transparency_id %in% vector_of_t_ids) %>% 
+# report <-
+#   sf_info %>%
+#   filter(transparency_id %in% vector_of_t_ids) %>%
 #   as_tibble()
 
 report <- as_tibble(sf_info)
