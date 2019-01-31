@@ -23,7 +23,7 @@ User input is required for the following:
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-initial_report_date <- as.character("8/1/2018")
+# initial_report_date <- as.character("8/1/2018")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1525,9 +1525,6 @@ for (i in 1:nrow(report)) {
     }
   }
   rm(i)
-  
-  rm(still_missing_noticed_exp, still_missing_noticed_rev, 
-   still_missing_noticed_w2)
 }
 
 if (exists("initial_report_date") &&
