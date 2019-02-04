@@ -247,7 +247,7 @@ name_totals <-
 
 **Initial Results and Follow-up**
 
-The initial result of running this report showed the following six local governments reported more than ten percent of their employees with either an invalid name (i.e., a blank field or a number) or a protected name (i.e., "Not Provided"):
+The initial result of running this report in October 2018 showed the following six local governments reported more than ten percent of their employees with either an invalid name (i.e., a blank field or a number) or a protected name (i.e., "Not Provided"):
 
 * Unified Police District
 * Weber Human Services
