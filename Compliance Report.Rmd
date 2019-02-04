@@ -37,8 +37,6 @@ odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
 odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
 ```
 
-Additionally, Transparency IDs are required in the section titled "Compliance Report - Select Governments" if the report is for a subset of all active and participating local governments.
-
 ## Functions
 
 ### AWS Queries
@@ -62,7 +60,7 @@ query_batch_ids <- function(transparency_id) {
               SELECT id
               FROM batch
               WHERE entity_id = ", transparency_id, "
-              AND status IN ('PROCESSED', 'PROCESSING')")) %>% 
+              AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE')")) %>% 
       .[["id"]] %>% 
       as.double() %>% 
       as.vector()
@@ -1415,7 +1413,7 @@ ORDER BY name
 
 ```{r}
 # vector_of_t_ids <-
-#   c(1509)
+#   c(353)
 # 
 # report <-
 #   sf_info %>%
