@@ -23,7 +23,7 @@ User input is required for the following:
 ```{r}
 # Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
 
-# initial_report_date <- as.character("8/1/2018")
+initial_report_date <- as.character("2/4/2019")
 ```
 
 ```{r, warning=FALSE, message=FALSE}
@@ -1412,15 +1412,15 @@ ORDER BY name
 ```
 
 ```{r}
-# vector_of_t_ids <-
-#   c(353)
-# 
-# report <-
-#   sf_info %>%
-#   filter(transparency_id %in% vector_of_t_ids) %>%
-#   as_tibble()
+vector_of_t_ids <-
+  c(1495)
 
-report <- as_tibble(sf_info)
+report <-
+  sf_info %>%
+  filter(transparency_id %in% vector_of_t_ids) %>%
+  as_tibble()
+
+# report <- as_tibble(sf_info)
 
 report$upload_in_queue <- 
   report$transparency_id %>% 
