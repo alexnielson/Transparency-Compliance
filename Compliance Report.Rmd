@@ -3,40 +3,6 @@ title: "Transparency Compliance Report"
 author: "Michael Jensen"
 output: html_notebook
 ---
-# Program Description
-
-For the active and participating governments that OSA monitors for compliance with Transparency reporting requirements, report the fiscal periods for which the government does not have a permanent reporting exemption and has not complied with the following reporting requirements:
-
-* One processed expense transaction per fiscal quarter.
-* One processed revenue transaction per fiscal quarter.
-* One processed W-2 employee compensation file per fiscal year.
-
-# Program - Preparation Material
-
-## Inputs, Packages, & Data Connections
-
-User input is required for the following:
-
-* The date of the initial report of the compliance cycle if this is not the initial report.
-* The DSN name for the Salesforce and AWS ODBCs.
-
-```{r}
-# Do not assign a value to initial_report_date if this is to be the first report of the enforcement cycle.
-
-initial_report_date <- as.character("2/4/2019")
-```
-
-```{r, warning=FALSE, message=FALSE}
-library(lubridate)
-library(magrittr)
-library(odbc)
-library(splitstackshape)
-library(tidyverse)
-
-odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
-odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
-```
-
 ## Functions
 
 ### AWS Queries
@@ -978,106 +944,28 @@ create_w2_reporting_template <- function(begin_report_w2, current_fy_begin) {
 
 ### Import
 
-```{sql, connection = odbc_sf, output.var = "sf_local_gov_info"}
-SELECT Name                          AS name, 
-       Id                            AS salesforce_id,
-       Transparency_ID__c            AS transparency_id, 
-       Fiscal_Year_Begins__c         AS fiscal_year_begin,
-       Expense_Revenue_Start_Date__c AS begin_report_exp_rev, 
-       Wage_Start_Date__c            AS begin_report_w2
-FROM Account
-WHERE RecordTypeId IN (
-  SELECT Id
-  FROM RecordType
-  WHERE DeveloperName IN (
-  'AOG', 
-  'City',
-  'Conservation_District',
-  'County', 
-  'District_Health',     
-  'Housing', 
-  'Interlocal', 
-  'Local_and_Special_Service_District', 
-  'Mental_Health', 
-  'Redevelopment_Agency_Project_Area', 
-  'School_District_or_Charter_School',
-  'Town'))
-AND Entity_Status__c IN (
-  'Current',
-  'On hold',
-  'Delinquent',
-  'Suspended')
-AND Name NOT IN (
-  'Intermountain Power Agency', 
-  'Utah Associated Municipal Power Systems', 
-  'Utah Municipal Power Agency')
-AND (Expense_Revenue_Start_Date__c <= DATE()
-OR Expense_Revenue_Start_Date__c IS NULL)
-```
-
-```{sql, connection = odbc_sf, output.var = "sf_independent_agency_info"}
-SELECT Name                          AS name, 
-       Id                            AS salesforce_id,
-       Transparency_ID__c            AS transparency_id, 
-       Fiscal_Year_Begins__c         AS fiscal_year_begin,
-       Expense_Revenue_Start_Date__c AS begin_report_exp_rev, 
-       Wage_Start_Date__c            AS begin_report_w2
-FROM Account
-WHERE RecordTypeId IN (
-  SELECT Id
-  FROM RecordType
-  WHERE DeveloperName IN (
-  'State_Agency'))
-AND Entity_Status__c IN (
-  'Current',
-  'On hold',
-  'Delinquent',
-  'Suspended')
-AND Name IN (
-  'Utah Dairy Commission', 
-  'Heber Valley Historic Railroad Authority', 
-  'Utah State Railroad Museum Authority',
-  'Utah Housing Corporation',
-  'Utah State Fair Corporation',
-  'School and Institutional Trust Lands Administration',
-  'School and Institutional Trust Fund Office',
-  'Utah Communications Authority',
-  'Utah Energy Infrastructure Authority',
-  'Utah Capital Investment Corporation',
-  'Military Installation Development Authority')
-AND (Expense_Revenue_Start_Date__c <= DATE()
-OR Expense_Revenue_Start_Date__c IS NULL)
-```
-
-```{sql, connection=odbc_sf, output.var="sf_status_history"}
-SELECT
-    ValidFromDate                      AS valid_from_date, 
-    Account__c_hst                     AS salesforce_id,
-    Status__c_hst                      AS status,
-    Date_of_Last_Uploaded_Batch__c_hst AS last_uploaded_batch
-FROM Transparency_Reporting__c_hd
-```
-
 ```{sql, connection = odbc_sf, output.var = "sf_exemptions"}
-SELECT a.Name                            AS name,
-       t.Account__c                      AS salesforce_id,
-       a.Fiscal_Year_Begins__c           AS fiscal_year_begin,
-       t.Transparency_type_exempted__c   AS transaction_type,
-       t.Recurring_Exemption__c          AS recurring_exemption,
-       t.Exemption_Start_Date__c         AS exemption_start,
-       t.Exemption_End_Date__c           AS exemption_end,
-       t.Temporary_Exemption__c          AS temporary_exemption,
-       t.Temporary_Exemption_End_Date__c AS temporary_exemption_end,
-       t.Exemption_Reason__c             AS exemption_reason
+SELECT 
+  a.Name                            AS name,
+  t.Account__c                      AS sf_id,
+  a.Fiscal_Year_Begins__c           AS fy_begin_date,
+  t.Transparency_type_exempted__c   AS transaction_type,
+  t.Recurring_Exemption__c          AS recurring_exemption,
+  t.Exemption_Start_Date__c         AS exemption_start,
+  t.Exemption_End_Date__c           AS exemption_end,
+  t.Temporary_Exemption__c          AS temporary_exemption,
+  t.Temporary_Exemption_End_Date__c AS temporary_exemption_end,
+  t.Exemption_Reason__c             AS exemption_reason
 FROM 
-(SELECT Account__c,
-        Exemption_Start_Date__c,
-        Exemption_End_Date__c,
-        Recurring_Exemption__c,
-        Transparency_type_exempted__c,
-        Temporary_Exemption__c,
-        Temporary_Exemption_End_Date__c,
-        Exemption_Reason__c
+  (SELECT 
+    Account__c,
+    Exemption_Start_Date__c,
+    Exemption_End_Date__c,
+    Recurring_Exemption__c,
+    Transparency_type_exempted__c,
+    Temporary_Exemption__c,
+    Temporary_Exemption_End_Date__c,
+    Exemption_Reason__c
  FROM Transparency_Exemption__c
  WHERE IsDeleted = FALSE) t
 LEFT JOIN Account a
@@ -1090,55 +978,6 @@ WHERE a.Entity_Status__c IN (
 ```
 
 ```{r}
-if (exists("initial_report_date")) {
-  
-  initial_report <- 
-    dbGetQuery(
-      odbc_sf,
-      paste("
-            SELECT 
-              t.Name AS report_date,
-              a.Name AS entity_name,
-              t.Account__c AS salesforce_id,
-              t.Expenditure_Problem__c AS missing_exp,
-              t.Revenue_Problem__c AS missing_rev,
-              t.Wage_Problem__c AS missing_w2,
-              t.Upload_In_Queue__c AS upload_in_queue,
-              t.Analyst_Notes__c AS analyst_notes
-            FROM (
-              SELECT 
-                Name, 
-                Account__c, 
-                Expenditure_Problem__c,
-                Revenue_Problem__c, 
-                Wage_Problem__c, 
-                Upload_In_Queue__c, 
-                Analyst_Notes__c
-              FROM Transparency_Reporting__c) t
-            LEFT JOIN Account a
-            ON t.Account__c = a.Id"))
-  
-  initial_report$report_date <- 
-    as.Date(initial_report$report_date, format = "%m/%d/%Y")
-  
-  initial_report <- 
-    initial_report %>% 
-    filter(report_date == mdy(initial_report_date),
-           upload_in_queue == FALSE)
-}
-```
-
-```{r}
-sf_info <- 
-  sf_local_gov_info %>% 
-  bind_rows(sf_independent_agency_info) %>% 
-  as_tibble()
-
-sf_status_history <- 
-  sf_status_history %>% 
-  left_join(sf_local_gov_info, by = "salesforce_id") %>% 
-  select(name, salesforce_id, status, valid_from_date, last_uploaded_batch)
-
 sf_exemptions %<>%
   as_tibble()
 
@@ -1617,11 +1456,4 @@ compliance_report %>%
   write.csv(
     file = paste0(file_path, file_name),
     row.names = FALSE)
-```
-
-# Close
-
-```{r}
-dbDisconnect(odbc_sf)
-dbDisconnect(odbc_aws)
 ```
