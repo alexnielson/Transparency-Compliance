@@ -1,0 +1,717 @@
+---
+title: "Single LG v 1.0"
+author: "Michael Jensen"
+date: "May 2018"
+output: html_notebook
+---
+#   ____________________________________________________________________________
+#   File Description                                                        ####
+
+**Purpose:**
+
+This program contains two smaller programs, which I frequently use together when
+working with local government officials to answer Transparency-related 
+questions.
+
+Part 1: Determine Compliance
+
+* Use to determine whether an entity is compliant with the following 
+Transparency reporting requirements:
+    + One expense transaction per fiscal quarter.
+    + One revenue transaction per fiscal quarter.
+    + One W-2 employee compensation transaction per fiscal year.
+
+Part 2: Browse Entity Data
+
+* Use to explore an entity's Transparency data.
+
+**Inputs:**
+
+* t.id: The entity's Transparency ID.
+* begin.er: The date the entity is required to begin reporting expense and 
+  revenue transactions.
+* begin.w2: The date the entity is required to begin reporting W-2 employee 
+  compensation data.
+* report.qtr: The calendar year and quarter through which OSA will enforce 
+  compliance for expense and revenue reporting.
+* template.er: The expense and revenue reporting template.
+* template.w2: The W-2 employee compensation reporting template.
+
+**Outputs:**
+
+* A report containing the fiscal periods for which the entity is missing a 
+  required report, if any.
+* The entity's Transparency data, as queried by the user.
+
+**Comments:**
+
+* Similar to "Compliance - Many LG v 1.5," this report does not take into 
+  account an entity's unique exemptions, nor unique fiscal years if the fiscal
+  year begins on a month other than January or July.
+    + This means that the report of missing periods must be considered with 
+      caution when speaking to a local government official, as it may not 
+      reflect the entity's unique situation.
+* I modified "Compliance - Many LG v 1.5" so that entity's with a fiscal year 
+  end of December 31 would not be reported as missing COMP 2017 if they hadn't 
+  reported it. We did not intend to enforce that report, so it was easier to 
+  adjust the code so it wasn't reported as missing. I have not made the same 
+  adjustment in this code, which means that if an entity with a December 31 
+  fiscal year end hasn't reported COMP 2017, then it will appear as a missing 
+  report.
+
+#   ____________________________________________________________________________
+#   Define Inputs                                                           ####
+
+Input the name of your DSN connection to AWS and, if known, the entity's 
+Transparency ID. 
+
+```{r}
+dsn.name <- "transpAWS"
+t.id     <- 623
+```
+
+If you do not know the entity's Transparency ID, use the following code to query
+the AWS entity table:
+
+```{r}
+library(RODBC)
+aws <- odbcConnect(dsn.name)
+
+entity.table <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id AS 't.id', name
+          FROM entity"))
+
+odbcClose(aws)
+detach(package:RODBC)
+rm(aws)
+```
+#   ____________________________________________________________________________
+#   Part 1: Determine Compliance                                            ####
+##  ............................................................................
+##  Define Inputs                                                           ####
+
+**Comments:**
+
+* begin.er: The first date for which the entity is required to report expense 
+  and revenue transactions.
+* begin.w2: The first date for which the entity is required to report W-2 
+  employee compensation information.
+* report.qtr: The calendar year and quarter through which we will enforce 
+  compliance with Transparency reporting requirements.
+* template.er: The calendar years and quarters from 2013 to the present.
+    + Note that this input will not need to be updated until the end of 
+      calendar year 2020.
+* template.w2: The calendar years from 2013 to the present.
+    + Note that this input will not need to be updated until the end of 
+      calendar year 2020.
+
+```{r}
+begin.er <- as.Date("2013-07-01")
+begin.w2 <- as.Date("2013-07-01")
+
+report.qtr <- 
+  as.numeric(2017.4)
+
+template.er <- 
+  as.matrix(
+    as.numeric(
+      c("2013.1", "2013.2", "2013.3", "2013.4",
+        "2014.1", "2014.2", "2014.3", "2014.4",
+        "2015.1", "2015.2", "2015.3", "2015.4",
+        "2016.1", "2016.2", "2016.3", "2016.4",
+        "2017.1", "2017.2", "2017.3", "2017.4",
+        "2018.1", "2018.2", "2018.3", "2018.4",
+        "2019.1", "2019.2", "2019.3", "2019.4", 
+        "2020.1", "2020.2", "2020.3", "2020.4")))
+
+template.w2 <-
+  as.matrix(
+    as.numeric(
+      c("2013",   "2014",   "2015",   "2016", 
+        "2017",   "2018",   "2019",   "2020")))
+```
+
+##  ............................................................................
+##  Define Functions                                                        ####
+
+The functions for determining whether the entity is compliant with Transparency
+reporting requirements are defined below.
+
+In determining compliance, remember that the functions below do not take into
+account an entity's unique fiscal year if it ends on a month other than July or 
+December.
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### EntityName                                                              ####
+
+As a check on the accuracy of the Transparency ID stored for the entity in 
+Salesforce, this function queries the entity name associated with the ID. If the
+entity name does not match the entity you think it should, please let me know.
+
+```{r}
+EntityName <- function(x) {
+  
+  # Args: The entity's Transparency ID.
+  
+  # Returns:
+  #   The entity name associated with the Transparency ID.
+  
+  name <- 
+    as.matrix(
+      sqlQuery(
+        aws,
+        paste("
+              SELECT name
+              FROM entity
+              WHERE id = ", 623)))
+  
+  name <- name[1]
+  
+  name
+}
+```
+
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### MissingExp                                                              ####
+
+The MissingExp function:
+
+* Queries the Transparency database for the entity's reported expense 
+  transactions, summarized by calendar quarter.
+    + Note that summarizing by calendar quarter may later result in incorrectly
+      identifying an entity's compliance status if that entity has fiscal 
+      quarters that are different from calendar quarters.
+    + Note that this code uses only an entity's reported posting dates to 
+      determine compliance. This means that an entity is considered compliant as
+      long as any posting date in the entirety of the entity's reporting history
+      matches the required calendar quarter of reporting. In later versions this
+      problem will be addressed by using the fiscal year to validate the posting
+      date. 
+* Modifies the expense and revenue reporting template based on the entity's 
+  unique start date for reporting expense and revenue transactions.
+* Compares the calendar quarters for which the entity did report data to the 
+  quarters for which the entity should have reported data to find missing 
+  periods, if any.
+* Formats the missing periods and inserts them into the Compliance Report.
+
+```{r}
+MissingExp <- function(x, y) {
+  
+  # Args:
+  #   x: The entity's Transparency ID.
+  #   y: The entity's start date for reporting expense and revenue transactions
+  #      (the code may result in an error if x has a value but y is NA).
+  
+  # Returns:
+  #   Calendar quarters for which the entity is missing an expected expense 
+  #   transaction.
+  
+  # Query the reported transactions.
+  reported.exp <-
+  as.matrix(
+    sqlQuery(
+      aws,
+      paste("
+            SELECT DISTINCT 
+              CONCAT (YEAR(posting_date), '.', QUARTER(posting_date))
+            FROM transaction
+            WHERE batch_id IN (
+              SELECT id
+              FROM batch
+              WHERE entity_id = ", x, "
+              AND status IN ('PROCESSED', 'PROCESSING'))
+            AND type = 1")))
+    
+  # Modify the reporting template.
+  required.exp <-
+  as.numeric(
+    template.er[
+      template.er >= 
+        quarter(y, 
+          with_year = TRUE)])
+  
+  required.exp <-
+    required.exp[
+      required.exp <= report.qtr]
+
+  # Find any missing quarters.
+  missing.exp <-
+    as.data.frame(
+      setdiff(
+        required.exp,
+        reported.exp))
+
+  rm(required.exp, reported.exp)
+
+  # Format missing quarters, if any.
+  if (nrow(missing.exp) == 0) {
+    missing.exp <- "Current on EXP"
+  } else {
+    missing.exp[ , 1] <-
+    gsub("\\.1$", " JAN-MAR", missing.exp[ , 1])
+
+  missing.exp[ , 1] <-
+    gsub("\\.2$", " APR-JUN", missing.exp[ , 1])
+
+  missing.exp[ , 1] <-
+    gsub("\\.3$", " JUL-SEP", missing.exp[ , 1])
+
+  missing.exp[ , 1] <-
+    gsub("\\.4$", " OCT-DEC", missing.exp[ , 1])
+
+  missing.exp <-
+    paste(
+      "EXP",
+      missing.exp[ , 1], 
+      collapse = ", ")
+    }
+  
+  # Report the missing periods.
+  missing.exp
+  }
+```
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### MissingRev                                                              ####
+
+The MissingRev function does the same thing as MissingExp, with the exception of
+searching for type 2 (revenue) rather than type 1 (expense) transactions in AWS.
+
+```{r}
+MissingRev <- function(x, y) {
+  
+  # Args:
+  #   x: The entity's Transparency ID.
+  #   y: The entity's start date for reporting expense and revenue transactions
+  #      (the code may result in an error if x has a value but y is NA).
+  
+  # Returns:
+  #   Calendar quarters for which the entity is missing an expected revenue 
+  #   transaction.
+    
+  # Query the reported transactions.
+  reported.rev <-
+  as.matrix(
+    sqlQuery(
+      aws,
+      paste("
+            SELECT DISTINCT 
+              CONCAT (YEAR(posting_date), '.', QUARTER(posting_date))
+            FROM transaction
+            WHERE batch_id IN (
+              SELECT id
+              FROM batch
+              WHERE entity_id = ", x, "
+              AND status IN ('PROCESSED', 'PROCESSING'))
+            AND type = 2")))
+  
+  # Modify the reporting template.
+  required.rev <-
+  as.numeric(
+    template.er[
+      template.er >= 
+        quarter(y, 
+          with_year = TRUE)])
+
+  required.rev <-
+    required.rev[
+      required.rev <= report.qtr]
+
+  # Find any missing quarters.
+  missing.rev <-
+    as.data.frame(
+      setdiff(
+        required.rev,
+        reported.rev))
+
+  rm(required.rev, reported.rev)
+
+  # Format missing quarters, if any.
+  if (nrow(missing.rev) == 0) {
+    missing.rev <- "Current on REV"
+  } else {
+    missing.rev[ , 1] <-
+    gsub("\\.1$", " JAN-MAR", missing.rev[ , 1])
+
+  missing.rev[ , 1] <-
+    gsub("\\.2$", " APR-JUN", missing.rev[ , 1])
+
+  missing.rev[ , 1] <-
+    gsub("\\.3$", " JUL-SEP", missing.rev[ , 1])
+
+  missing.rev[ , 1] <-
+    gsub("\\.4$", " OCT-DEC", missing.rev[ , 1])
+
+  missing.rev <-
+    paste(
+      "REV",
+      missing.rev[ , 1], 
+      collapse = ", ")
+  }
+  
+  # Report the missing periods.
+  missing.rev
+}
+```
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### MissingW2                                                               ####
+
+The MissingW2 function is similar to MissingExp and MissingRev, with the 
+following exceptions:
+
+* I query for type 3 (W-2 compensation) financial information.
+* I use the fiscal_year variable to determine whether an entity has posted the
+  required information, rather than the posting_date variable. 
+    + This is due to the difference in how employee compensation information is 
+    posted, as it is not general ledger information and therefore the posting 
+    dates may not match the fiscal year.
+* W-2 information is only required once per year, so I use a yearly template to
+  determine compliance, rather than a quarterly one.
+
+```{r}
+MissingW2 <- function(x, y) {
+  
+  # Args:
+  #   x: The entity's Transparency ID.
+  #   y: The entity's start date for reporting W-2 compensation information
+  #      (the code may result in an error if x has a value but y is NA).
+  
+  # Returns:
+  #   Fiscal years for which the entity is missing an expected W-2 compensation 
+  #   upload.
+  
+  # Query the reported information.
+  reported.w2 <-
+    as.matrix(
+      sqlQuery(
+        aws,
+        paste("
+              SELECT DISTINCT fiscal_year
+              FROM transaction
+              WHERE batch_id IN (
+                SELECT id
+                FROM batch
+                WHERE entity_id = ", x, "
+                AND status IN ('PROCESSED', 'PROCESSING'))
+              AND type = 3")))
+
+  # Modify the reporting template.
+  if (month(y) == 1) {
+    required.w2 <- 
+      template.w2[
+        template.w2 >=
+          as.numeric(
+            year(y))]
+  } else {
+    required.w2 <-
+      template.w2[
+        template.w2 >
+          as.numeric(
+            year(y))]
+  }
+  
+  # Required compensation reports are determined by assuming that all entities
+  # have a fiscal year end of either July or December.
+  if ((month(y) == 1) & (month(today()) < 4)) {
+    required.w2 <-
+      required.w2[
+        required.w2 <
+          (year(today()) - 1)]
+  } else if ((month(y) == 1) & (month(today()) >= 4)) {
+    required.w2 <-
+      required.w2[
+        required.w2 <
+          year(today())]
+  } else if ((month(y) != 1) & (month(today()) < 10)) {
+   required.w2 <-
+      required.w2[
+        required.w2 <
+          year(today())]
+  } else if ((month(y) != 1) & (month(today()) >= 10)) {
+    required.w2 <-
+      required.w2[
+       required.w2 <= 
+          year(today())]
+  }
+  
+  # Find any missing fiscal years.
+  missing.w2 <- 
+    as.data.frame(
+      setdiff(
+        required.w2, 
+        reported.w2))
+
+  rm(required.w2, reported.w2)
+
+  # Format the missing years, if any.
+  if (nrow(missing.w2) == 0) {
+    missing.w2 <- "Current on COMP"
+  } else {
+   missing.w2 <-
+     paste(
+       "COMP",
+       missing.w2[ , 1],
+       collapse = ", ")
+  }
+    
+  # Report the missing years.
+  missing.w2
+}
+```
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### LastUploadedBatch                                                       ####
+
+Determine the date of the most recently uploaded batch for each entity, so we 
+have more information to use when speaking with local government officials.
+
+```{r}
+LastUploadedBatch <- function(x) {
+  
+  # Args:
+  #   x: The entity's Transparency ID.
+  
+  # Returns:
+  #   If present, the date of the most recently uploaded batch.
+  #   If the entity has never uploaded a batch, "1900-01-01."
+
+  upload <- 
+    as.matrix(
+      sqlQuery(
+      aws, 
+      paste("
+            SELECT DATE_FORMAT(upload_date, '%Y-%m-%d')
+            FROM batch
+            WHERE entity_id = ", x, "
+            ORDER BY upload_date DESC
+            LIMIT 1")))
+  
+  if (nrow(upload) == 0) {
+    upload <- "1900-01-01"
+  } else {
+    upload <- upload[1]
+  }
+  
+  upload
+}
+```
+
+### . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . ..
+### LastProcessedBatch                                                      ####
+
+Determine the date of the most recently processed batch for each entity, so we
+have more information to use when speaking with local government officials.
+
+* Note that the date of the most recently processed batch is not always the 
+  date the most recently uploaded batch was processed. This date value indicates 
+  the most recent time when an action was taken on any of the entity's batch
+  files.
+  
+```{r}
+LastProcessedBatch <- function(x) {
+  
+  # Args:
+  #   x: The entity's Transparency ID.
+  
+  # Returns:
+  #   If present, the date of the most recently processed batch.
+  #   If the entity has never had a batch processed, "1900-01-01."
+  
+  process <- 
+    as.matrix(
+      sqlQuery(
+      aws, 
+      paste("
+            SELECT DATE_FORMAT(processed_date, '%Y-%m-%d')
+            FROM batch
+            WHERE entity_id = ", x, "
+            ORDER BY processed_date DESC
+            LIMIT 1")))
+  
+  if (nrow(process) == 0) {
+    process <- "1900-01-01"
+  } else {
+    process <- process[1]
+  }
+  
+  process
+}
+```
+
+##  ............................................................................
+##  Generate the Compliance Report                                          ####
+
+Load required packages and open the ODBC to AWS.
+
+```{r}
+library(lubridate)
+library(RODBC)
+aws <- odbcConnect(dsn.name)
+```
+
+Populate and print the report.
+
+```{r}
+report <- 
+  data.frame(
+    entity.name = character(1))
+
+report$entity.name    <- EntityName(t.id)
+report$exp            <- MissingExp(t.id, begin.er)
+report$rev            <- MissingRev(t.id, begin.er)
+report$comp           <- MissingW2(t.id, begin.w2)
+report$last.upload    <- LastUploadedBatch(t.id)
+report$last.processed <- LastProcessedBatch(t.id)
+
+report
+```
+
+#   ____________________________________________________________________________
+#   Part 2: Browse Entity Data                                              ####
+
+In the queries below I've only included the variables that I've referenced most 
+often or which I think may be useful when trouble-shooting a problem. This means 
+that the queries may need to be modified in order to answer a specific question,
+and I've created a space to modify each template as needed.
+
+##  ............................................................................
+##  Connect to AWS                                                          ####
+
+```{r}
+library(RODBC)
+aws <- odbcConnect(dsn.name)
+```
+
+##  ............................................................................
+##  Query the Entity Table                                                  ####
+
+Query template:
+
+```{r}
+entity.table <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id, name, govt_lvl, fiscal_period, payroll_period
+          FROM entity
+          WHERE id = ", t.id))
+```
+
+Copy and paste the entity.table query from above to modify as needed:
+
+```{r}
+
+```
+
+##  ............................................................................
+##  Query the Batch Table                                                   ####
+
+Query template:
+
+```{r}
+batch.table <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id, begin_txn_date, end_txn_date, upload_username, upload_date,
+            processed_date, status, status_message
+          FROM batch
+          WHERE entity_id = ", t.id))
+```
+
+Copy and paste the batch.table query from above to modify as needed:
+
+```{r}
+
+```
+
+##  ............................................................................
+##  Query Expenses                                                          ####
+
+Query template:
+
+```{r}
+exp <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id, posting_date, amount, fiscal_year, type
+          FROM transaction
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t.id, "
+            AND status IN ('PROCESSED', 'PROCESSING'))
+          AND type = 1"))
+```
+
+Copy and paste the exp query from above to modify as needed:
+
+```{r}
+
+```
+
+##  ............................................................................
+##  Query Revenues                                                          ####
+
+Query template:
+
+```{r}
+rev <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id, posting_date, amount, fiscal_year, type
+          FROM transaction
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t.id, "
+            AND status IN ('PROCESSED', 'PROCESSING'))
+          AND type = 2"))
+```
+
+Copy and paste the rev query from above to modify as needed:
+
+```{r}
+
+```
+
+##  ............................................................................
+##  Query W-2 Employee Compensation                                         ####
+
+Query template:
+
+```{r}
+comp <-
+  sqlQuery(
+    aws,
+    paste("
+          SELECT id, posting_date, amount, fiscal_year, type
+          FROM transaction
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t.id, "
+            AND status IN ('PROCESSED', 'PROCESSING'))
+          AND type = 3"))
+```
+
+Copy and paste the comp query from above to modify as needed:
+
+```{r}
+
+```
+
+#   ____________________________________________________________________________
+#   Clean up the R Environment                                              ####
+
+```{r}
+odbcClose(aws)
+rm(list = ls())
+```
