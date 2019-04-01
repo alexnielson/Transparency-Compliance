@@ -1,5 +1,5 @@
 ---
-title: "Invalid Expense and Revenue Payee/Customer/Vendor Names"
+title: "Invalid Payee/Customer/Vendor Names for Expense and Revenue Transactions"
 author: "Michael Jensen"
 date: "`r format(Sys.Date(), '%B %e, %Y')`"
 output:
@@ -10,25 +10,39 @@ output:
 ***
 ### Introduction
 
-The purpose of this report is to identify local governments with invalid payee/customer/vendor names for expense and revenue transactions.
+Transparency Board policy requires local governments to report the payee, customer, or vendor name for transactions reported to Transparency, with two exceptions:^[*State of Utah Transparency Website File Layout*, 28 August 2013]
 
-**Background**
+* Report "Not Applicable" when the transaction does not have a payee, customer, or vendor (e.g., a journal voucher entry).
+* Report "Not Provided" when the payee, customer, or vendor's information is private and will always remain private (e.g., the person's name is protected by GRAMA, HIPPA, or FERPA).
 
-Transparency Board policy requires local governments to submit the payee, customer, or vendor name for expense and revenue transactions (*State of Utah Transparency Website File Layout*, August 28, 2013 revision). Board policy allows for two exceptions:
+In situations where the payee, customer, or vendor's information is protected but may become unprotected in the future (e.g., an undercover officer or an employee with a protective order), local governments are required to report the information but indicate it is temporarily protected. Local governments do this by reporting a "P" in the Protection Indicator field of the *State of Utah Transparency Website File Layout* (when a transaction is marked as temporarily protected, Transparency will not display the name, "Doing Business As" name, and gender of the payee, customer, or vendor).
 
-* Information that is permanently private, protected, or controlled must be replaced with "Not Provided."
-* Transactions without a payee, customer, or vendor (such as a journal voucher) must be replaced with "Not Applicable."
-
-The validity of "Not Provided" and "Not Applicable" submissions to Transparency has not been tested, however, and Auditor Dougall requested that I review the information. His intent is that seemingly invalid names are identified and the appropriate local governments are contacted in order to correct inaccuracies.
+As of October 2018, we are not aware of any person or organization that has conducted a review of the validity of the submitted payee/customer/vendor names. Auditor Dougall, therefore, decided that reviewing and identifying and correcting invalid names falls within his responsibilities as State Auditor.
 
 ### Analysis
 
-**Identifying Invalid Names**
+#### Identify Valid and Invalid Names
 
-```{r, message = FALSE, echo=FALSE}
-knitr::opts_chunk$set(echo = FALSE)
+Considering Transparency Board policy, valid payee/customer/vendor names include:
 
-# Packages & Data Connections
+* A human-friendly name (i.e., a random character string is not meaningful and therefore invalid)
+* "Not Applicable"
+    + "NA" and "N/A" are valid if they are an abbreviation for "Not Applicable"
+* "Not Provided"
+
+Invalid payee/customer/vendor names include:
+
+* Blank fields (i.e., no name reported)
+* A high ratio of "Not Applicable" names to total reported names, as journal voucher entries should not comprise most of the data.
+* "Not Applicable" or "Not Provided" paired with a "P" in the Protection Indicator field (i.e., temporarily-protected information must be reported)
+* "Unavailable"
+* "NA" or "N/A" if they are an abbreviation for "Not Available"
+* Non human-friendly names (i.e., a random character string)
+* Numbers
+
+```{r}
+# knitr::opts_chunk$set(echo = FALSE)
+
 library(odbc)
 library(stringr)
 library(tidyverse)
@@ -37,18 +51,61 @@ odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
 odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce") 
 ```
 
-```{sql, connection=odbc_sf, results='hide'}
+Before reviewing the reported payee/customer/vendor names, I restricted my analysis to the following government types (which OSA monitors for compliance):
+
+* Salesforce designation (must also be an active government):
+    + Association of Government
+    + City
+    + Conservation District (not required to report until July 2019)
+    + County
+    + District Health
+    + Housing
+    + Interlocal
+    + Local and Special Service District
+    + Mental Health
+    + Redevelopment Agency/Project Area
+    + School District or Charter School
+    + Town
+    + Community Reinvestment Agency
+
+* Transparency designation:
+    + City
+    + County
+    + Housing Authority
+    + Interlocal
+    + Independent
+    + K12 Education
+    + Local District
+    + Service District
+
+```{sql, connection=odbc_sf, output.var="sf_filtered_entity_types"}
 SELECT DISTINCT DeveloperName
 FROM RecordType
 WHERE DeveloperName NOT IN (
- 'Chat', 'Community', 'Email', 'Phone', 'Social', 'CPA_Firm', 'Community_User',
- 'Educational_Foundation', 'Financial_Institution', 'State_Agency',
- 'Justice_Court', 'Non_Profits', 'Subpoena', 'LT_Gov_Document', 'Consolidation', 
- 'AUP_Checklist', 'Budget_Checklist', 'LEA_Checklist', 'Large_Entity_Checklist',
- 'Small_Entity_Checklist', 'Special_Purpose_Audit')
+ 'Chat', 
+ 'Community', 
+ 'Email', 
+ 'Phone', 
+ 'Social', 
+ 'CPA_Firm', 
+ 'Community_User',
+ 'Educational_Foundation', 
+ 'Financial_Institution', 
+ 'State_Agency',
+ 'Justice_Court', 
+ 'Non_Profits', 
+ 'Subpoena', 
+ 'LT_Gov_Document', 
+ 'Consolidation', 
+ 'AUP_Checklist', 
+ 'Budget_Checklist', 
+ 'LEA_Checklist', 
+ 'Large_Entity_Checklist',
+ 'Small_Entity_Checklist', 
+ 'Special_Purpose_Audit')
 ```
 
-```{sql, connection=odbc_sf, output.var="active_local_govs"}
+```{sql, connection=odbc_sf, output.var="sf_active_local_govs"}
 SELECT Transparency_ID__c AS transparency_id,
        Name               AS sf_entity_name
 FROM Account
@@ -67,7 +124,8 @@ WHERE RecordTypeId IN (
     'Mental_Health', 
     'Redevelopment_Agency_Project_Area', 
     'School_District_or_Charter_School',
-    'Town'))
+    'Town',
+    'Community_Reinvestment_Agency'))
 AND Entity_Status__c IN (
   'Current',
   'On hold',
@@ -75,24 +133,35 @@ AND Entity_Status__c IN (
   'Suspended')
 ```
 
-```{sql, connection=odbc_aws, results='hide'}
+```{sql, connection=odbc_aws, output.var="aws_entity_types"}
 SELECT DISTINCT govt_lvl
 FROM entity
 ```
 
-```{sql, connection=odbc_aws, output.var="exp_vendor_names"}
-SELECT DISTINCT vendor.id   AS vendor_id,
-                vendor.name AS vendor_name,
-                entity.id   AS transparency_id,
-                entity.name AS entity_name
-FROM vendor
-LEFT JOIN entity
-ON entity.id = vendor.entity_id
-WHERE vendor.id IN(
-  SELECT vendor_summary.vendor_id
-  FROM vendor_summary
-  WHERE type = 1)
-AND vendor.entity_id IN (
+```{sql, connection=odbc_aws, output.var="entity_table"}
+SELECT id, name, govt_lvl
+FROM entity
+WHERE govt_lvl IN (
+  'CITY',
+  'COUNTY',
+  'HOUSING AUTHORITIES',
+  'INTERLOCAL',
+  'INDEPENDENT',
+  'K12 EDUCATION',
+  'LOCAL DISTRICTS'
+  'SERVICE DISTRICTS')
+```
+
+```{sql, connection=odbc_aws, output.var="exp_names"}
+SELECT 
+  vendor_summary.entity_id,
+  vendor_summary.vendor_id,
+  vendor.name AS vendor_name
+FROM vendor_summary
+LEFT JOIN vendor
+ON vendor.id = vendor_summary.vendor_id
+WHERE vendor_summary.type = 1
+AND vendor_summary.entity_id IN (
   SELECT id
   FROM entity
   WHERE govt_lvl IN (
@@ -106,19 +175,16 @@ AND vendor.entity_id IN (
     'SERVICE DISTRICTS'))
 ```
 
-```{sql, connection=odbc_aws, output.var="rev_vendor_names"}
-SELECT DISTINCT vendor.id   AS vendor_id,
-                vendor.name AS vendor_name,
-                entity.id   AS transparency_id,
-                entity.name AS entity_name
-FROM vendor
-LEFT JOIN entity
-ON entity.id = vendor.entity_id
-WHERE vendor.id IN(
-  SELECT vendor_summary.vendor_id
-  FROM vendor_summary
-  WHERE type = 2)
-AND vendor.entity_id IN (
+```{sql, connection=odbc_aws, output.var="rev_names"}
+SELECT 
+  vendor_summary.entity_id,
+  vendor_summary.vendor_id,
+  vendor.name AS vendor_name
+FROM vendor_summary
+LEFT JOIN vendor
+ON vendor.id = vendor_summary.vendor_id
+WHERE vendor_summary.type = 2
+AND vendor_summary.entity_id IN (
   SELECT id
   FROM entity
   WHERE govt_lvl IN (
@@ -133,55 +199,127 @@ AND vendor.entity_id IN (
 ```
 
 ```{r}
-active_local_govs <- 
-  as_tibble(active_local_govs)
+exp_names <- 
+  as_tibble(exp_names)
 
-exp_vendor_names <- 
-  as_tibble(exp_vendor_names)
+rev_names <- 
+  as_tibble(rev_names)
 
-rev_vendor_names <- 
-  as_tibble(rev_vendor_names)
+entity_table$id <- 
+  as.integer(entity_table$id)
 
-exp_vendor_names$vendor_id <- 
-  as.numeric(exp_vendor_names$vendor_id)
+exp_names$entity_id <- 
+  as.integer(exp_names$entity_id)
 
-rev_vendor_names$vendor_id <- 
-  as.numeric(rev_vendor_names$vendor_id)
+exp_names$vendor_id <- 
+  as.integer(exp_names$vendor_id)
 
-exp_vendor_names$transparency_id <- 
-  as.numeric(exp_vendor_names$transparency_id)
+rev_names$entity_id <- 
+  as.integer(rev_names$entity_id)
 
-rev_vendor_names$transparency_id <- 
-  as.numeric(rev_vendor_names$transparency_id)
-```
+rev_names$vendor_id <- 
+  as.integer(rev_names$vendor_id)
 
-```{r}
-exp_vendor_names <- 
-  exp_vendor_names %>% 
-  semi_join(active_local_govs, by = "transparency_id")
+exp_names <- 
+  exp_names %>% 
+  left_join(entity_table,
+            by = c("entity_id" = "id")) %>% 
+  select(entity_id, entity_name = name, vendor_id, vendor_name) %>% 
+  semi_join(sf_active_local_govs,
+            by = c("entity_id" = "transparency_id"))
 
-rev_vendor_names <- 
-  rev_vendor_names %>% 
-  semi_join(active_local_govs, by = "transparency_id")
+rev_names <- 
+  rev_names %>% 
+  left_join(entity_table,
+            by = c("entity_id" = "id")) %>% 
+  select(entity_id, entity_name = name, vendor_id, vendor_name) %>% 
+  semi_join(sf_active_local_govs,
+            by = c("entity_id" = "transparency_id"))
 
-rm(active_local_govs)
+rm(aws_entity_types, sf_active_local_govs, entity_table)
 ```
 
 ```{r, eval=FALSE}
 exp_distinct_names <- 
-  exp_vendor_names %>% 
+  exp_names %>% 
   distinct(vendor_name) %>% 
   arrange(vendor_name)
 
 rev_distinct_names <- 
-  rev_vendor_names %>% 
+  rev_names %>% 
   distinct(vendor_name) %>% 
   arrange(vendor_name)
 
-rm(exp_distinct_names, rev_distinct_names)
+# rm(exp_distinct_names, rev_distinct_names)
 ```
 
+I searched the names and found the following (as of October 2018):
+
+* "Not Applicable"
+* Blank fields
+
+
+'"DONT USE"" use #20425"
+"-USE VENDOR #2641"
+***USE VENDOR #22058***
+****DO NOT USE** USE 23559
+***DO NOT USE*** SEE V011273 SANDYS FINE FOD
+.
+....
+???
+_____________________
+____________________________________
+#N/A
+Names surrounded with ""
+Names preceeded by "~"
+Number/numbers
+* 0
+* 1.24.18
+* 105126
+numbers and names (some of which make sense and some of which do not)
+* 100594 TODD WOFFINDEN 65938
+* 102152 RMFMA 62287
+* 102164 ICC 63124
+Vendor names containing information that appears like it belongs in an org, cat, or fund column:
+* "0030 Athletics"
+* "0050 General"
+* "02 sales tax bonds"
+* "10.6Elem750"
+* "10.6Misc3975"
+
+Non-sensicals that include a date, transaction number (?), and a city
+* "01/04 509655EX 665646 11.8 BLUFF"
+* "01/11 Workers Compensation accrual"
+
+
+```{r}
+grady_augmented_dictionary <- 
+  qdapDictionaries::GradyAugmented %>% 
+  as_tibble()
+
+colnames(grady_augmented_dictionary) <- "name"
+
+mark_kantrowitzs_names_dictionary <- 
+  read_tsv("http://www.cs.cmu.edu/afs/cs/project/ai-repository/ai/areas/nlp/corpora/names/other/names.txt", 
+           col_names = "name") %>% 
+  as_tibble()
+
+dictionary <- 
+  grady_augmented_dictionary %>% 
+  bind_rows(mark_kantrowitzs_names_dictionary)
+```
+
+
+
+
+
+
+
 After excluding local governments that are inactive or dissolved, I searched for names that are blank, contain only numbers, or contain text like "Not Available", "Not Provided," "Unavailable", "NA," and "N/A." I found the following:
+
+
+NO "NOT APPLICABLE"s?
+
 
 * Blank fields
 * Fields containing some variation of "Not Provided"
@@ -191,14 +329,14 @@ After excluding local governments that are inactive or dissolved, I searched for
 
 ```{r, echo=FALSE}
 exp_invalid_names <- 
-  exp_vendor_names %>% 
+  exp_names %>% 
   filter(vendor_name == "" |
          str_detect(vendor_name, regex("^not a", ignore_case = TRUE)) |
          str_detect(vendor_name, regex("^not pro", ignore_case = TRUE)) |
          str_detect(vendor_name, "^[0-9]+"))
 
 rev_invalid_names <- 
-  rev_vendor_names %>% 
+  rev_names %>% 
   filter(vendor_name == "" |
          str_detect(vendor_name, regex("^not a", ignore_case = TRUE)) |
          str_detect(vendor_name, regex("^not pro", ignore_case = TRUE)) |
@@ -480,6 +618,6 @@ write_csv(rev_detail, rev_path)
 ## Close
 
 ```{r, echo=FALSE}
-dbDisconnect(odbc_aws)
+dbDisconnect(odbc_aws, odbc_dw)
 rm(list = ls())
 ```
