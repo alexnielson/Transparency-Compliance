@@ -526,7 +526,7 @@ missing_reports <- function(t_id, begin_date, begin_fy, sf_id, exempt_list, trxn
     } else {
       
       missing_reports %>% 
-        paste("W2 COMP", .) %>% 
+        paste("PAYROLL", .) %>% 
         paste(collapse = ", ")
     }
   } else {
@@ -1064,24 +1064,12 @@ sf_independent_agency <-
             SELECT Id
             FROM RecordType
             WHERE DeveloperName IN (
-            'State_Agency'))
+            'Independent_Quasi_State_Entity'))
           AND Entity_Status__c IN (
             'Current',
             'On hold',
             'Delinquent',
             'Suspended')
-          AND Name IN (
-            'Utah Dairy Commission', 
-            'Heber Valley Historic Railroad Authority', 
-            'Utah State Railroad Museum Authority',
-            'Utah Housing Corporation',
-            'Utah State Fair Corporation',
-            'School and Institutional Trust Lands Administration',
-            'School and Institutional Trust Fund Office',
-            'Utah Communications Authority',
-            'Utah Energy Infrastructure Authority',
-            'Utah Capital Investment Corporation',
-            'Military Installation Development Authority')
           AND (
             Expense_Revenue_Start_Date__c <= DATE() OR 
             Expense_Revenue_Start_Date__c IS NULL)")) %>% 
@@ -1191,10 +1179,15 @@ rm(report_date_as_character, report_date)
 
 ```{r}
 validate_nrow(sf_local_gov, 1000)
-validate_nrow(sf_independent_agency, 10)
 validate_nrow(sf_initial_report, 1000)
 
 rm(validate_nrow)
+
+(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 11)) ||
+  
+  stop("The number of rows in sf_independent_agency does not match the expected
+       number. Did the data frame import correctly? Did the number of entites
+       we monitor change?", call. = FALSE)
 
 # Validate sf_entity_info ####
 
@@ -1688,7 +1681,7 @@ compliance_report <-
 naughty_list <- 
   compliance_report %>% 
   filter(still_missing_noticed_report == 1 &
-           unexpired_temporary_exemption == 0)
+         unexpired_temporary_exemption == 0)
 
 if (!exists("subset_of_entities")) {
   
