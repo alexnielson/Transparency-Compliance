@@ -437,10 +437,9 @@ mark_still_missing <- function(sf_id, sf_list, current_report) {
     filter(id == sf_id) %>% 
     filter(valid_from_date == max(valid_from_date))
   
-  if (nrow(current_status) > 0                               &&
-      (current_status$status[[1]] == "Delinquent - Enforced" ||
-       current_status$status[[1]] == "On Hold"               ||
-       current_status$status[[1]] == "Hold")                 &&
+  if (nrow(current_status) > 0                             &&
+      (current_status$status[[1]] == "Delinquent_Enforced" ||
+       current_status$status[[1]] == "Hold")               &&
       (any(current_exp %in% initial_exp) ||
        any(current_rev %in% initial_rev) ||
        any(current_w2  %in% initial_w2))) {
@@ -1539,8 +1538,7 @@ entity_table <-
     ORDER BY name")
 
 subset_of_entities <- 
-  c(133, 295, 445, 533, 623, 625, 1043, 1063, 1075, 1111, 1480, 1489, 1495, 
-    1634, 1635)
+  c(1568)
 ```
 
 ```{r}
