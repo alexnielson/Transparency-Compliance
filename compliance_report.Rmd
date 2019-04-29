@@ -1182,7 +1182,7 @@ validate_nrow(sf_initial_report, 1000)
 
 rm(validate_nrow)
 
-(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 11)) ||
+(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 12)) ||
   
   stop("The number of rows in sf_independent_agency does not match the expected
        number. Did the data frame import correctly? Did the number of entites
@@ -1538,7 +1538,7 @@ entity_table <-
     ORDER BY name")
 
 subset_of_entities <- 
-  c(1568)
+  c(1526)
 ```
 
 ```{r}
@@ -1638,7 +1638,7 @@ if (names(initial_report_date) == "current_cycle" &&
     report %>%
     mutate(
       within_grace_period = 0,
-      catch_next_cycle    = map_dbl(sf_id,
+      catch_next_cycle    = map_dbl(id,
                                     mark_catch_next_cycle,
                                     date    = initial_report_date,
                                     sf_list = sf_data))
@@ -1679,7 +1679,8 @@ compliance_report <-
 naughty_list <- 
   compliance_report %>% 
   filter(still_missing_noticed_report == 1 &
-         unexpired_temporary_exemption == 0)
+         unexpired_temporary_exemption == 0 &
+         catch_next_cycle == 0)
 
 if (!exists("subset_of_entities")) {
   
