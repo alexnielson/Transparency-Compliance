@@ -30,8 +30,8 @@ initial_report_date <- as.Date("2019-02-04")
 
 # Insert a "#" before the name below that you do NOT want to use.
 names(initial_report_date) <- 
-  #"previous_cycle"
-  "current_cycle"
+  "previous_cycle"
+  # "current_cycle"
 
 ```
 
@@ -1676,11 +1676,20 @@ compliance_report <-
          within_grace_period, upload_in_queue, catch_next_cycle, 
          send_60_day_notice, govt_type)
 
-naughty_list <- 
+if (names(initial_report_date) == "previous_cycle") {
+  
+  naughty_list <- 
+    compliance_report %>% 
+    filter(send_60_day_notice == 1)
+  
+} else {
+  
+  naughty_list <- 
   compliance_report %>% 
   filter(still_missing_noticed_report == 1 &
          unexpired_temporary_exemption == 0 &
          catch_next_cycle == 0)
+}
 
 if (!exists("subset_of_entities")) {
   
