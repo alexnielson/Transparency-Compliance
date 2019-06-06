@@ -241,9 +241,6 @@ name_totals <-
   print()
 ```
 
-**Initial Results and Follow-up**
-
-
 
 ```{r}
 dbDisconnect(odbc_aws)
