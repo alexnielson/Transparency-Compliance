@@ -252,6 +252,7 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
     invalid_ucoa_info$invalid_fund <- 
       fund[!fund %in% ucoa[["fund"]][["NUMBER"]]] %>% 
+      unique() %>% 
       paste(collapse = ", ") %>% 
       sort()
   }
@@ -260,7 +261,8 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
     invalid_ucoa_info$invalid_funct <- 
       funct[!funct %in% ucoa[["funct"]][["NUMBER"]]] %>% 
-      paste(collapse = ", ") %>% 
+      unique() %>% 
+      paste(collapse = ", ") %>%
       sort()
   }
   
@@ -268,7 +270,8 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
     invalid_ucoa_info$invalid_account_exp <- 
       account_exp[!account_exp %in% ucoa[["account_exp"]][["NUMBER"]]] %>% 
-      paste(collapse = ", ") %>% 
+      unique() %>%
+      paste(collapse = ", ") %>%
       sort()
   }
   
@@ -276,6 +279,7 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
     invalid_ucoa_info$invalid_account_rev <- 
       account_exp[!account_rev %in% ucoa[["account_rev"]][["NUMBER"]]] %>% 
+      unique() %>%
       paste(collapse = ", ") %>% 
       sort()
   }
@@ -284,17 +288,10 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
     invalid_ucoa_info$invalid_account_w2 <- 
       account_w2[!account_w2 %in% ucoa[["account_w2"]][["NUMBER"]]] %>% 
+      unique() %>%
       paste(collapse = ", ") %>% 
       sort()
   }
-  
-  # 
-  # if (!all(account %in% ucoa[["account"]][["NUMBER"]])) {
-  #   
-  #   invalid_ucoa_info$invalid_account <- 
-  #     account[!account %in% ucoa[["account"]][["NUMBER"]]] %>% 
-  #     paste(collapse = ", ")
-  # }
   
   invalid_ucoa_info
 }
@@ -621,6 +618,7 @@ sf_data <-
             Account.Expense_Revenue_Start_Date__c IS NULL)")) %>%
   as_tibble()
 
+# Included in the above query.
 # sf_independent_agency <-
 #   dbGetQuery(
 #     odbc_sf,
