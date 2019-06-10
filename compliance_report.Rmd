@@ -32,7 +32,6 @@ initial_report_date <- as.Date("2019-05-01")
 names(initial_report_date) <- 
   # "previous_cycle"
     "current_cycle"
-
 ```
 
 **Output(s)**
@@ -514,18 +513,12 @@ missing_reports <- function(t_id, begin_date, begin_fy, sf_id, exempt_list, trxn
     
     if (trxn_type == 1 || trxn_type == 2) {
       
-      if (trxn_type == 1) trxn_name <- "EXP"
-      
-      if (trxn_type == 2) trxn_name <- "REV"
-      
       map_chr(missing_reports, convert_to_yyyy_mmm_mmm, begin_fy) %>% 
-        paste(trxn_name, .) %>% 
         paste(collapse = ", ")
       
     } else {
       
       missing_reports %>% 
-        paste("PAYROLL", .) %>% 
         paste(collapse = ", ")
     }
   } else {
@@ -625,7 +618,7 @@ query_last_processed_batch <- function(t_id) {
   
   if (is.na(t_id)) {
     
-    as.Date("1900-01-01")
+    "01/01/1900"
     
   } else {
     
@@ -641,11 +634,11 @@ query_last_processed_batch <- function(t_id) {
     
     if (nrow(last_processed_batch) == 0 || is.na(last_processed_batch[[1]])) {
       
-      as.Date("1900-01-01")
+      "01/01/1900"
       
     } else {
       
-      last_processed_batch[[1]] %>% as.Date()
+      last_processed_batch[[1]] %>% as.Date() %>% format("%m/%d/%Y")
     }
   }
 }
@@ -666,7 +659,7 @@ query_last_uploaded_batch <- function(t_id) {
 
   if (is.na(t_id)) {
     
-    as.Date("1900-01-01")
+    "01/01/1900"
     
   } else {
     
@@ -682,11 +675,11 @@ query_last_uploaded_batch <- function(t_id) {
     
     if (nrow(last_uploaded_batch) == 0 || is.na(last_uploaded_batch[[1]])) {
       
-      as.Date("1900-01-01")
+      "01/01/1900"
       
     } else {
       
-      last_uploaded_batch[[1]] %>% as.Date()
+      last_uploaded_batch[[1]] %>% as.Date() %>% format("%m/%d/%Y")
     }
   }
 }
@@ -1047,9 +1040,12 @@ sf_local_gov <-
             Expense_Revenue_Start_Date__c IS NULL)")) %>% 
   as_tibble()
 
-# Can I combine this with the above query? Why do I do them separately? 
-# I do them separately so I can more easily detect when there's a change in 
-# Salesforce regarding independent agencies. The separate queries are by design.
+# Though I could combine the query that creates sf_independent_agency with the
+# query that creates sf_local_gov, I chose to not do so. My reason for keeping
+# the queries separate is that I can more easily identify changes to the number
+# of independent entities. If my program fails or there is a change in the data 
+# that I am not aware of, the checks in the "Validate" section below will help
+# me identify those changes.
 sf_independent_agency <- 
   dbGetQuery(
     odbc_sf,
@@ -1082,52 +1078,36 @@ sf_exemptions <-
     odbc_sf,
     paste("
           SELECT 
-          a.Name                          AS name,
-          t.Account__c                    AS id,
-          a.Fiscal_Year_Begins__c         AS begin_fy,
-          t.Transparency_type_exempted__c AS transaction_type,
-          t.Recurring_Exemption__c        AS recurring_exemption,
-          t.Exemption_Start_Date__c       AS exemption_start,
-          t.Exemption_End_Date__c         AS exemption_end,
-          t.Permanent_or_Temporary__c     AS exemption_type,
-          t.Exemption_Reason__c           AS reason
+            a.Name                          AS name,
+            t.Account__c                    AS id,
+            a.Fiscal_Year_Begins__c         AS begin_fy,
+            t.Transparency_type_exempted__c AS transaction_type,
+            t.Recurring_Exemption__c        AS recurring_exemption,
+            t.Exemption_Start_Date__c       AS exemption_start,
+            t.Exemption_End_Date__c         AS exemption_end,
+            t.Permanent_or_Temporary__c     AS exemption_type,
+            t.Exemption_Reason__c           AS reason
           FROM (
-          SELECT 
-          Account__c,
-          Exemption_Start_Date__c,
-          Exemption_End_Date__c,
-          Recurring_Exemption__c,
-          Transparency_type_exempted__c,
-          Permanent_or_Temporary__c,
-          Exemption_Reason__c
-          FROM Transparency_Exemption__c
-          WHERE IsDeleted = FALSE) t
+            SELECT 
+              Account__c,
+              Exemption_Start_Date__c,
+              Exemption_End_Date__c,
+              Recurring_Exemption__c,
+              Transparency_type_exempted__c,
+              Permanent_or_Temporary__c,
+              Exemption_Reason__c
+            FROM Transparency_Exemption__c
+            WHERE IsDeleted = FALSE) t
           LEFT JOIN Account a
           ON t.Account__c = a.Id
           WHERE a.Entity_Status__c IN (
-          'Current', 
-          'On hold', 
-          'Delinquent', 
-          'Suspended')")) %>% 
+            'Current', 
+            'On hold', 
+            'Delinquent', 
+            'Suspended')")) %>% 
   as_tibble()
 
-# Initial report:
-
-# I created report_date to handle a different formating of t.Name.
-
-# report_date <- 
-#     initial_report_date %>% 
-#     as.character() %>% 
-#     str_split("-") %>% 
-#     .[[1]] %>% 
-#     as.character()
-#   
-# report_date <- 
-#   paste(report_date[2],
-#         report_date[3],
-#         report_date[1], sep = "/") %>% 
-#   paste0("'", ., "'")
-
+# Query the initial report:
 report_date <- paste0("'", as.character(initial_report_date), "'")
   
 sf_initial_report <-
@@ -1154,9 +1134,8 @@ sf_initial_report <-
           ON t.Account__c = a.Id")) %>% 
   as_tibble() %>%
     mutate(report_date = as.Date(report_date))
-    # mutate(report_date = as.Date(report_date, format = "%m/%d/%Y"))
 
-# Status history:
+# Query entity Transparency Compliance status history:
 report_date_as_character <- 
   format(initial_report_date, "%Y/%m/%d") %>% 
   paste0("'", ., "'")
@@ -1180,33 +1159,15 @@ sf_status_history <-
   mutate(created_date = as.Date(created_date)) %>% 
   as_tibble()
 
-# After talking with Alex, I realized that I should query data from 
-# Transparency_Reporting__c rather than __c_hd.
-# sf_status_history <- 
-#   dbGetQuery(
-#     odbc_sf,
-#     paste("
-#       SELECT 
-#         STRFTIME('%Y/%m/%d', ValidFromDate) AS valid_from_date,
-#         Account__c_hst                      AS id,
-#         Status__c_hst                       AS status
-#       FROM Transparency_Reporting__c_hd
-#       WHERE 
-#         STRFTIME('%Y/%m/%d', ValidFromDate) >= 
-#         STRFTIME(", report_date_as_character, ")")) %>%
-#   left_join(sf_local_gov,
-#             by = "id") %>% 
-#   select(name, id, valid_from_date, status) %>% 
-#   arrange(name, valid_from_date) %>% 
-#   mutate(valid_from_date = as.Date(valid_from_date)) %>% 
-#   as_tibble()
-
 rm(report_date_as_character, report_date)
 ```
 
 ### Validate
 
 ```{r}
+# validate_nrow() is a simple check on whether the data imported from Salesforce
+# correctly. It won't catch all errors, but checking the number of rows has 
+# helped me identify significant problems before the rest of the report runs.
 validate_nrow(sf_local_gov, 1000)
 validate_nrow(sf_initial_report, 1000)
 
@@ -1452,7 +1413,7 @@ if (sf_exemptions %>%
   
   stop("W-2 exemptions must not be marked as a recurring exemption.
        Update Salesforce, using the day the entity's fiscal year begins as the
-       exemption start date) and reimport.", 
+       exemption start date and reimport.", 
        call. = FALSE)
 }
 
@@ -1558,6 +1519,7 @@ rm(sf_initial_report,
 
 ## Generate Compliance Report
 
+Use this section to create a compliance report for a specific entity or group of entities:
 ```{r, eval=FALSE}
 entity_table <- 
   dbGetQuery(
@@ -1644,7 +1606,8 @@ report <-
     last_processed_batch = map(t_id, query_last_processed_batch),
     
     last_uploaded_batch  = map(t_id, query_last_uploaded_batch)) %>%
-  unnest()
+  unnest(unexp_temp_exemption, still_missing_report, upload_in_queue,
+         last_processed_batch, last_uploaded_batch)
 
 if (names(initial_report_date) == "current_cycle") {
   
