@@ -26,12 +26,12 @@ For the active and participating governments that OSA monitors for compliance wi
 dsn_aws        <- "transpAWS"
 dsn_salesforce <- "Salesforce"
 
-initial_report_date <- as.Date("2019-02-04")
+initial_report_date <- as.Date("2019-05-01")
 
 # Insert a "#" before the name below that you do NOT want to use.
 names(initial_report_date) <- 
-  "previous_cycle"
-  # "current_cycle"
+  # "previous_cycle"
+    "current_cycle"
 
 ```
 
@@ -381,7 +381,7 @@ mark_catch_next_cycle <- function(sf_id, date, sf_list) {
   
   history_post_grace_period <- 
     sf_list$status_history %>%
-    filter(id == sf_id & valid_from_date > date + days(60))
+    filter(id == sf_id & created_date > date + days(60))
   
   status_names <- c("Okay", "Current", "Delinquent - Not Enforced")
   
@@ -435,7 +435,7 @@ mark_still_missing <- function(sf_id, sf_list, current_report) {
   current_status <- 
     sf_list$status_history %>% 
     filter(id == sf_id) %>% 
-    filter(valid_from_date == max(valid_from_date))
+    filter(created_date == max(created_date))
   
   if (nrow(current_status) > 0                             &&
       (current_status$status[[1]] == "Delinquent_Enforced" ||
@@ -1047,6 +1047,9 @@ sf_local_gov <-
             Expense_Revenue_Start_Date__c IS NULL)")) %>% 
   as_tibble()
 
+# Can I combine this with the above query? Why do I do them separately? 
+# I do them separately so I can more easily detect when there's a change in 
+# Salesforce regarding independent agencies. The separate queries are by design.
 sf_independent_agency <- 
   dbGetQuery(
     odbc_sf,
@@ -1109,18 +1112,23 @@ sf_exemptions <-
   as_tibble()
 
 # Initial report:
-report_date <- 
-    initial_report_date %>% 
-    as.character() %>% 
-    str_split("-") %>% 
-    .[[1]] %>% 
-    as.character()
-  
-report_date <- 
-  paste(report_date[2],
-        report_date[3],
-        report_date[1], sep = "/") %>% 
-  paste0("'", ., "'")
+
+# I created report_date to handle a different formating of t.Name.
+
+# report_date <- 
+#     initial_report_date %>% 
+#     as.character() %>% 
+#     str_split("-") %>% 
+#     .[[1]] %>% 
+#     as.character()
+#   
+# report_date <- 
+#   paste(report_date[2],
+#         report_date[3],
+#         report_date[1], sep = "/") %>% 
+#   paste0("'", ., "'")
+
+report_date <- paste0("'", as.character(initial_report_date), "'")
   
 sf_initial_report <-
   dbGetQuery(
@@ -1135,17 +1143,18 @@ sf_initial_report <-
             t.Wage_Problem__c        AS missing_w2
           FROM (
             SELECT 
-            Name, 
-            Account__c, 
-            Expenditure_Problem__c,
-            Revenue_Problem__c, 
-            Wage_Problem__c
+              Name, 
+              Account__c, 
+              Expenditure_Problem__c,
+              Revenue_Problem__c, 
+              Wage_Problem__c
             FROM Transparency_Reporting__c
             WHERE Name = ", report_date, ") t
           LEFT JOIN Account a 
           ON t.Account__c = a.Id")) %>% 
-  as_tibble() %>% 
-    mutate(report_date = as.Date(report_date, format = "%m/%d/%Y"))
+  as_tibble() %>%
+    mutate(report_date = as.Date(report_date))
+    # mutate(report_date = as.Date(report_date, format = "%m/%d/%Y"))
 
 # Status history:
 report_date_as_character <- 
@@ -1157,19 +1166,40 @@ sf_status_history <-
     odbc_sf,
     paste("
       SELECT 
-        STRFTIME('%Y/%m/%d', ValidFromDate) AS valid_from_date,
-        Account__c_hst                      AS id,
-        Status__c_hst                       AS status
-      FROM Transparency_Reporting__c_hd
+        STRFTIME('%Y/%m/%d', CreatedDate) AS created_date,
+        Account__c                        AS id,
+        Status__c                         AS status
+      FROM Transparency_Reporting__c
       WHERE 
-        STRFTIME('%Y/%m/%d', ValidFromDate) >= 
+        STRFTIME('%Y/%m/%d', CreatedDate) >= 
         STRFTIME(", report_date_as_character, ")")) %>%
   left_join(sf_local_gov,
             by = "id") %>% 
-  select(name, id, valid_from_date, status) %>% 
-  arrange(name, valid_from_date) %>% 
-  mutate(valid_from_date = as.Date(valid_from_date)) %>% 
+  select(name, id, created_date, status) %>% 
+  arrange(name, created_date) %>% 
+  mutate(created_date = as.Date(created_date)) %>% 
   as_tibble()
+
+# After talking with Alex, I realized that I should query data from 
+# Transparency_Reporting__c rather than __c_hd.
+# sf_status_history <- 
+#   dbGetQuery(
+#     odbc_sf,
+#     paste("
+#       SELECT 
+#         STRFTIME('%Y/%m/%d', ValidFromDate) AS valid_from_date,
+#         Account__c_hst                      AS id,
+#         Status__c_hst                       AS status
+#       FROM Transparency_Reporting__c_hd
+#       WHERE 
+#         STRFTIME('%Y/%m/%d', ValidFromDate) >= 
+#         STRFTIME(", report_date_as_character, ")")) %>%
+#   left_join(sf_local_gov,
+#             by = "id") %>% 
+#   select(name, id, valid_from_date, status) %>% 
+#   arrange(name, valid_from_date) %>% 
+#   mutate(valid_from_date = as.Date(valid_from_date)) %>% 
+#   as_tibble()
 
 rm(report_date_as_character, report_date)
 ```
@@ -1482,7 +1512,7 @@ if (class(sf_initial_report$report_date) != "Date"      ||
 
 if (class(sf_status_history$name)            != "character" ||
     class(sf_status_history$id)              != "character" ||
-    class(sf_status_history$valid_from_date) != "Date"      ||
+    class(sf_status_history$created_date)    != "Date"      ||
     class(sf_status_history$status)          != "character") {
 
   stop("One or more fields in sf_status_history is not of the correct class.
