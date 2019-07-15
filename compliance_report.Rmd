@@ -1173,7 +1173,7 @@ validate_nrow(sf_initial_report, 1000)
 
 rm(validate_nrow)
 
-(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 12)) ||
+(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 13)) ||
   
   stop("The number of rows in sf_independent_agency does not match the expected
        number. Did the data frame import correctly? Did the number of entites
@@ -1608,7 +1608,7 @@ report <-
     last_uploaded_batch  = map(t_id, query_last_uploaded_batch)) %>%
   unnest(unexp_temp_exemption, still_missing_report, upload_in_queue,
          last_processed_batch, last_uploaded_batch)
-
+    
 if (names(initial_report_date) == "current_cycle") {
   
   report$send_60_day_notice <- 0
@@ -1697,7 +1697,7 @@ if (!exists("subset_of_entities")) {
       row.names = FALSE)
 }
 ```
-
+    
 # DBMS Disconnection
 
 ```{r}
