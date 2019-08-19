@@ -26,12 +26,12 @@ For the active and participating governments that OSA monitors for compliance wi
 dsn_aws        <- "transpAWS"
 dsn_salesforce <- "Salesforce"
 
-initial_report_date <- as.Date("2019-05-01")
+initial_report_date <- as.Date("2019-08-05")
 
 # Insert a "#" before the name below that you do NOT want to use.
 names(initial_report_date) <- 
   # "previous_cycle"
-    "current_cycle"
+"current_cycle"
 ```
 
 **Output(s)**
@@ -1697,7 +1697,7 @@ if (!exists("subset_of_entities")) {
       row.names = FALSE)
 }
 ```
-    
+
 # DBMS Disconnection
 
 ```{r}
