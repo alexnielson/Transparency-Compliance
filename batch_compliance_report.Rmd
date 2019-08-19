@@ -1,23 +1,24 @@
 ---
 title: "Batch Compliance Report"
 author: "Michael Jensen"
-date: "May 2019"
+date: "July 2019"
 output: html_notebook
 ---
 # Program Description
 
 **Purpose**
 
-For non-archived batches, check the following to determine whether a batch submitted by a local government or independent agency is compliant with Transparency reporting requirements:
+For non-archived Transparency data, identify violations of the following reporting requirements:
 
-* fiscal_year is one of the entity's most recent six fiscal years.
-* type is 1, 2, 3, or 7 for non-State of Utah entities.
-* posting_date corresponds to fiscal_year, meaning that posting_date is within the interval of one month prior to the start of the fiscal_year value through six months after the end of the fiscal_year value.
-* account_number is populated with a number found in the OSA Uniform Chart of Accounts, meaning:
-    * The account_number field contains a 17-digit code,
-    * The first three digits are a valid fund code,
-    * The next six digits are a valid function code,
-    * The remaining eight digits are a valid account code, where the account code must match what is valid for the transaction type.
+* `fiscal_year` is reasonable (i.e., not an archived fiscal year and not a future fiscal year).
+* `type` is 1, 2, 3, or 7 for non-State of Utah entities.
+* `posting_date` is reasonable (i.e., the posting_date is within the interval of three months prior to the start of the `fiscal_year` value through six months following the end of the `fiscal_year` value).
+    + Note: Per a 2019-07 phone conversation with a local government CFO, notifying entities of unreasonable `posting_date` values will result in `posting_date` values that are less transparent and accountable. This is because a CFO is likely to change the incorrect `posting_date` value in the pipe-delimited file he or she uploaded to Transparency in order to become compliant, rather than correct the problem in the entity's accounting software and re-upload the data.
+* `account_number` is a code found in the OSA **Uniform Chart of Accounts**, which means:
+    + `account_number` is a 17-character string (19-character if the dashes are included in the count).
+    + `account_number` contains a valid 3-character fund code.
+    + `account_number` contains a valid 6-character function code.
+    + `account_number` contains a valid 8-character account code, where the account code is valid for the corresponding transaction type (e.g., a revenue transaction must not have an expense-related account code).
 
 **Input(s)**
 
@@ -31,28 +32,40 @@ dsn_salesforce <- "Salesforce"
 
 **Output(s)**
 
-A .csv file that contains the following information for each invalid batch identified:
+* A report containing the unique `fiscal_year` values in the non-archived Transparency data (incorrect values would then trigger an investigation of the data).
 
-* Entity Salesforce ID
-* Entity name
-* Batch ID
-* File name of the invalid batch
-* Upload date
-* Upload username
-* Transaction types in the batch
-* Beginning transaction date
-* End transaction date
-* File record count
-* File total amount
-* Message explaining the error, which is at least one of the following:
-    * Invalid fiscal_year value
-    * Invalid transaction type value
-    * Invalid posting date
-    * Number of blank or NA account_number values
-    * Number of non-17 digit account_number values
-    * Invalid fund codes used
-    * Invalid function codes used
-    * Invalid account codes used
+* A report containing the unique `type` values in the non-archived Transparency data (incorrect values would then trigger an investigation of the data).
+
+* A .csv file listing the entities with `posting_date` and `account_number` violations and a summary of each problem identified.
+  + Whether the entity has blank or NA `account_number` values
+  + The number of `account_number` values that are not the correct number of characters
+  + The number of invalid fund codes
+  + The number of invalid function codes
+  + The number of invalid expense account codes
+  + The number of invalid revenue account codes
+  + The percentage of transactions that have a vague function code
+  + The percentage of transactions that have a vague expense account code
+  + The percentage of transactions that have a vague revenue account code
+
+* For each entity with `posting_date` violations, a .csv file containing the following information:
+  + Entity Salesforce ID
+  + Entity name
+  + Batch ID
+  + File name of the invalid batch
+  + Upload date
+  + Upload username
+  + Transaction types in the batch
+  + Beginning transaction date
+  + End transaction date
+  + File record count
+  + File total amount
+  + The invalid dates
+  
+* For each entity with `account_number` violations, a .csv file containing the invalid data for each of the following violations:
+  + `account_number` values that are not the correct number of characters
+  + Invalid fund codes
+  + Invalid function codes used
+  + Invalid account codes used
 
 # Libraries and Data Source(s)
 
@@ -116,7 +129,7 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
   #   The UCoA code is the key to analyzing, in aggregate, local government 
   #   financial data. The UCoA code is minimally useful if governments are 
   #   using only the most general code (e.g., coding a transaction as
-  #   100-000000-30000000 isn't that useful).
+  #   100-000000-30000000 isn't useful).
   
   reported_ucoa <- 
     dbGetQuery(
@@ -129,9 +142,8 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
               FROM batch
               WHERE entity_id = ", t_id, "
               AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))")) %>% 
-    mutate(account_number = str_remove_all(account_number, "-")) %>% 
     as_tibble() %>% 
-    filter(nchar(account_number) == 17)
+    filter(nchar(account_number) == 19)
 
   if (ucoa_type == "funct") {
     
@@ -140,7 +152,7 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
     reported_ucoa <- 
       reported_ucoa %>% 
       .[["account_number"]] %>% 
-      substr(4, 9)
+      substr(5, 10)
     
   } else if (ucoa_type == "exp") {
     
@@ -150,7 +162,7 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
       reported_ucoa %>% 
       filter(type == 1) %>% 
       .[["account_number"]] %>% 
-      substr(10, 17)
+      substr(12, 19)
     
   } else if (ucoa_type == "rev") {
     
@@ -160,7 +172,7 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
       reported_ucoa %>% 
       filter(type == 2) %>% 
       .[["account_number"]] %>% 
-      substr(10, 17)
+      substr(12, 19)
   }
   
   reported_vague_ucoa <- 
@@ -188,11 +200,15 @@ check_posting_date <- function(batch_id, begin_fy) {
   #   Character.
   #
   # Comments:
-  #   We consider the posting_date value to be reasonable if it is within one
+  #   We consider the posting_date value to be reasonable if it is within three
   #   month prior to the start of the fiscal_year value through six months
-  #   after the end of the fiscal_year value.
+  #   after the end of the fiscal_year value. Three months ahead of the fiscal
+  #   year accomodates accounts payable transactions that are billed late and 
+  #   six months after the fiscal year matches the Transparency Board policy 
+  #   that entities upload year-end corrections within six months of the end of
+  #   the fiscal year.
   #
-  #   Thus, a posting_date value in the range of December 1, 2017 through
+  #   Thus, a posting_date value in the range of October 1, 2017 through
   #   June 30, 2019 is valid if the fiscal_year value is 2018 and the batch is
   #   from an entity with a fiscal year that begins on January 1.
 
@@ -252,7 +268,7 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
   # Comments:
   #   Because type 3 (payroll) information is not required to have a UCoA code
   #   and we do not require entities to upload type 7 (balance sheet)
-  #   information, I decided to not check those transactions for valid UCoA.
+  #   information, I decided to exlude those transaction types here.
   
   ucoa_reported <-
     dbGetQuery(
@@ -262,21 +278,17 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
             FROM transaction
             WHERE batch_id = ", batch_id, "
             AND type IN (1, 2)")) %>%
-    mutate(account_number = str_remove_all(account_number, "-")) %>% 
     as_tibble()
 
   invalid_ucoa_info <- 
     tibble(
       batch_id            = batch_id,
       any_blank_or_na     = NA,
-      non_17_digit        = NA,
+      not_19_char         = NA,
       invalid_fund        = NA,
       invalid_funct       = NA,
       invalid_account_exp = NA,
-      invalid_account_rev = NA,
-      percent_vague_funct = NA,
-      percent_vague_exp   = NA,
-      percent_vague_rev   = NA)
+      invalid_account_rev = NA)
   
   if (govt_type == "School_District_or_Charter_School") {
     
@@ -286,30 +298,26 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
   if (any(is.na(ucoa_reported$account_number)) || 
       any(ucoa_reported$account_number == "")) {
 
-    invalid_ucoa_info$any_blank_or_na <- 1
-        
-    # invalid_ucoa_info$number_blank_or_na <- 
-    #   ucoa_reported %>% 
-    #   filter(account_number == "" | is.na(account_number)) %>% 
-    #   nrow()
+    invalid_ucoa_info$any_blank_or_na <- "Yes"
     
     ucoa_reported <- 
       ucoa_reported %>% 
       filter(account_number != "", !is.na(account_number))
+    
   }
   
-  if (any(nchar(ucoa_reported$account_number) != 17)) {
+  if (any(nchar(ucoa_reported$account_number) != 19)) {
     
-    invalid_ucoa_info$non_17_digit <- 
+    invalid_ucoa_info$not_19_char <- 
       ucoa_reported %>% 
-      filter(nchar(account_number) != 17) %>% 
+      filter(nchar(account_number) != 19) %>% 
       .[["account_number"]] %>% 
       paste(collapse = ", ") %>% 
       sort()
     
     ucoa_reported <- 
       ucoa_reported %>% 
-      filter(nchar(account_number) == 17)
+      filter(nchar(account_number) == 19)
   }
   
   fund <- 
@@ -320,11 +328,11 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
   funct <-
     ucoa_reported %>% 
     .[["account_number"]] %>% 
-    substring(4, 9)
+    substring(5, 10)
   
   account <- 
     ucoa_reported %>% 
-    mutate(account_number = substring(account_number, 10, 17))
+    mutate(account_number = substring(account_number, 12, 19))
   
   account_exp <- 
     account %>% 
@@ -366,21 +374,12 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
   if (!all(account_rev %in% ucoa[["account_rev"]][["NUMBER"]])) {
     
     invalid_ucoa_info$invalid_account_rev <- 
-      account_exp[!account_rev %in% ucoa[["account_rev"]][["NUMBER"]]] %>% 
+      account_rev[!account_rev %in% ucoa[["account_rev"]][["NUMBER"]]] %>% 
       unique() %>%
       paste(collapse = ", ") %>% 
       sort()
   }
   
-  invalid_ucoa_info$percent_vague_funct <- 
-    check_percentage_of_vague_ucoa(batch_id, "funct", ucoa)
-    
-  invalid_ucoa_info$percent_vague_exp <- 
-    check_percentage_of_vague_ucoa(batch_id, "exp", ucoa)
-    
-  invalid_ucoa_info$percent_vague_rev <- 
-    check_percentage_of_vague_ucoa(batch_id, "rev", ucoa)
-
   invalid_ucoa_info
 }
 ```
@@ -409,21 +408,18 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
   
   # Why am I creating an empty row of data if there are no batch IDs?
   # Did I do this because I can't skip those entities?
-  if (nrow(batch_ids) == 0) {
+  if (length(batch_ids) == 0 || nrow(batch_ids) == 0) {
     
     report <-
       tibble(
         batch_id             = NA,
         fiscal_year          = NA,
         any_blank_or_na      = NA,
-        non_17_digit         = NA,
+        not_19_char          = NA,
         invalid_fund         = NA,
         invalid_funct        = NA,
         invalid_account_exp  = NA,
         invalid_account_rev  = NA,
-        percent_vague_funct  = NA,
-        percent_vague_exp    = NA,
-        percent_vague_rev    = NA,
         invalid_date         = NA,
         entity_name          = NA,
         sf_id                = NA,
@@ -607,8 +603,8 @@ query_type <- function(batch_id) {
         "REV",
         if_else(
           reported_types$type == 3,
-          "PAYROLL",
-          if_else(
+          "PAYROLL",                  # I decided not to check PAYROLL data, so
+          if_else(                    # this won't appear in the report.
             reported_types$type == 7,
             "BS",                     # I decided not to check BS data, so this 
                                       # won't appear in the report.
@@ -668,8 +664,6 @@ query_username <- function(batch_id) {
 
 ## Salesforce
 
-### Import
-
 ```{r}
 sf_data <-
   dbGetQuery(
@@ -714,32 +708,6 @@ sf_data <-
             Account.Expense_Revenue_Start_Date__c <= DATE() OR
             Account.Expense_Revenue_Start_Date__c IS NULL)")) %>%
   as_tibble()
-
-# Included in the above query.
-# sf_independent_agency <-
-#   dbGetQuery(
-#     odbc_sf,
-#     paste("
-#           SELECT
-#             Name                          AS name,
-#             Id                            AS id,
-#             Transparency_ID__c            AS t_id,
-#             Fiscal_Year_Begins__c         AS begin_fy
-#           FROM Account
-#           WHERE RecordTypeId IN (
-#             SELECT Id
-#             FROM RecordType
-#             WHERE DeveloperName IN (
-#             'Independent_Quasi_State_Entity'))
-#           AND Entity_Status__c IN (
-#             'Current',
-#             'On hold',
-#             'Delinquent',
-#             'Suspended')
-#           AND (
-#             Expense_Revenue_Start_Date__c <= DATE() OR
-#             Expense_Revenue_Start_Date__c IS NULL)")) %>%
-#   as_tibble()
 ```
 
 ## UCoA
@@ -845,11 +813,13 @@ rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
    ucoa_account_rev, ucoa_vague_funct, ucoa_vague_exp, ucoa_vague_rev)
 ```
 
-## Report
+## Reports
+
+## Invalid `fiscal_year` and `type`
 
 ```{r}
 # Check fiscal_year:
-invalid_fy <- 
+report_invalid_fy <- 
   dbGetQuery(
     odbc_aws,
     "
@@ -863,7 +833,7 @@ invalid_fy <-
       YEAR(CURDATE()) - 4)")
 
 # Check type:
-invalid_type <- 
+report_invalid_type <- 
   dbGetQuery(
     odbc_aws,
     "
@@ -877,16 +847,21 @@ invalid_type <-
     AND batch.entity_id <> 1")
 ```
 
+## Invalid 'posting_date` and `account_number`
+
 ```{r}
-# Check posting_date and account_number
+# sf_data <- 
+#   sf_data %>% 
+#   filter(!is.na(t_id)) %>% 
+#   filter(t_id == 445 | # Highland City
+#          t_id == 299 | # Box Elder County
+#          t_id == 631 | # West Valley City
+#          t_id == 605 | # Tooele City
+#          t_id == 919)  # Stansbury Service Agency
+
 sf_data <- 
   sf_data %>% 
-  filter(!is.na(t_id)) %>% 
-  filter(t_id == 445 | # Highland City
-         t_id == 299 | # Box Elder County
-         t_id == 631 | # West Valley City
-         t_id == 605 | # Tooele City
-         t_id == 919)  # Stansbury Service Agency
+  filter(!is.na(t_id))
 
 entity_batches <- 
   list(
@@ -902,28 +877,31 @@ names(entity_batches) <- sf_data$name
 entity_batches_invalid <- 
   entity_batches %>% 
   bind_rows() %>%
-  select(batch_id, entity_name, uploaded_file, upload_date, transaction_type,
-         begin_txn_date, end_txn_date, file_record_count, file_total_amount,
-         any_blank_or_na, non_17_digit, invalid_fund, invalid_funct,
+  select(entity_name, entity_id, batch_id, fiscal_year, 
+         any_blank_or_na, not_19_char, invalid_fund, invalid_funct,
          invalid_account_exp, invalid_account_rev, invalid_date,
-         percent_vague_funct, percent_vague_exp, percent_vague_rev,
-         entity_id, username, fiscal_year) %>%
+         username, uploaded_file, upload_date, transaction_type,
+         begin_txn_date, end_txn_date, file_record_count, 
+         file_total_amount) %>%
   filter(!is.na(any_blank_or_na)     |
-         !is.na(non_17_digit)        |
+         !is.na(not_19_char)         |
          !is.na(invalid_fund)        |
          !is.na(invalid_funct)       |
          !is.na(invalid_account_exp) |
          !is.na(invalid_account_rev) |
-         invalid_date != "")
+         invalid_date != "") %>% 
+  arrange(entity_name, fiscal_year)
 ```
+
+## Summary Report
 
 ```{r}
 report_summary <- 
-  tibble(
-    entity_name                = entity_batches_invalid$entity_name %>%
-                                   unique(),
+  sf_data %>% 
+  select(entity_name = name, t_id, govt_type) %>% 
+  mutate(
     any_blank_or_na            = NA,
-    number_non_17_digit        = NA,
+    number_not_19_char         = NA,
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
     number_invalid_account_exp = NA,
@@ -943,162 +921,280 @@ for (i in 1:nrow(report_summary)) {
     
     report_summary$any_blank_or_na[[i]] <- "Yes"
     
-  } else {
-   
-    report_summary$any_blank_or_na[[i]] <- "No"
-  }
+  } 
+  rm(a)
 }
+rm(i)
 
+for (i in 1:nrow(report_summary)) {
+  
+  report_summary$number_not_19_char[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(not_19_char) %>% 
+    filter(!is.na(not_19_char)) %>% 
+    cSplit(
+      splitCols = "not_19_char", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique() %>% 
+    nrow()
+}
+rm(i)
 
+for (i in 1:nrow(report_summary)) {
+  
+  report_summary$number_invalid_fund[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_fund) %>% 
+    filter(!is.na(invalid_fund)) %>% 
+    cSplit(
+      splitCols = "invalid_fund", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique() %>% 
+    nrow()
+}
+rm(i)
 
-highland_invalid_summary <- 
-  tibble(
-    invalid_dates       = report_invalid_dates %>% 
-                            filter(entity_name == "Highland City") %>%
-                            cSplit(
-                              splitCols = "invalid_date",
-                              sep = ",",
-                              direction = "long") %>% 
-                            select(invalid_date) %>% 
-                            count(),
-    # percentage_of_batches = NA,
-    any_blank_or_na  = highland_ucoa %>%
-                            filter(!is.na(any_blank_or_na)) %>% 
-                            .[["any_blank_or_na"]] %>% 
-                            sum(),
-    non_17_digit        = highland_ucoa %>% 
-                            filter(!is.na(non_17_digit)) %>% 
-                            cSplit(
-                              splitCols = "non_17_digit", 
-                              sep = ",", 
-                              direction = "long") %>% 
-                            select(non_17_digit) %>% 
-                            unique() %>% 
-                            count(),
-    invalid_fund        = highland_ucoa %>% 
-                            filter(!is.na(invalid_fund)) %>% 
-                            cSplit(
-                              splitCols = "invalid_fund", 
-                              sep = ",", 
-                              direction = "long") %>% 
-                            select(invalid_fund) %>% 
-                            unique() %>% 
-                            count(),
-    invalid_funct       = highland_ucoa %>% 
-                            filter(!is.na(invalid_funct)) %>% 
-                            cSplit(
-                              splitCols = "invalid_funct", 
-                              sep = ",", 
-                              direction = "long") %>% 
-                            select(invalid_funct) %>% 
-                            unique() %>% 
-                            count(),
-    invalid_account_exp = highland_ucoa %>% 
-                            filter(!is.na(invalid_account_exp)) %>% 
-                            cSplit(
-                              splitCols = "invalid_account_exp", 
-                              sep = ",", 
-                              direction = "long") %>% 
-                            select(invalid_account_exp) %>% 
-                            unique() %>% 
-                            count(),
-    invalid_account_rev = highland_ucoa %>% 
-                            filter(!is.na(invalid_account_rev)) %>% 
-                            cSplit(
-                              splitCols = "invalid_account_rev", 
-                              sep = ",", 
-                              direction = "long") %>% 
-                            select(invalid_account_rev) %>% 
-                            unique() %>% 
-                            count(),
-    percent_vague_function = check_percentage_of_vague_ucoa(
-                               t_id,
-                               ucoa_type = "funct",
-                               ucoa = ucoa),
-    percent_vague_account_exp = check_percentage_of_vague_ucoa(
-                               t_id,
-                               ucoa_type = "exp",
-                               ucoa = ucoa),
-    percent_vague_account_rev = check_percentage_of_vague_ucoa(
-                               t_id,
-                               ucoa_type = "rev",
-                               ucoa = ucoa))
+for (i in 1:nrow(report_summary)) {
+  
+  report_summary$number_invalid_function[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_funct) %>% 
+    filter(!is.na(invalid_funct)) %>% 
+    cSplit(
+      splitCols = "invalid_funct", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique() %>% 
+    nrow()
+}
+rm(i)
 
-highland_non_17_digits <- 
-  highland_ucoa %>%
-  filter(!is.na(non_17_digit)) %>%
-  cSplit(
-    splitCols = "non_17_digit",
-    sep = ",",
-    direction = "long") %>%
-  select(non_17_digit) %>%
-  unique() %>%
-  arrange(non_17_digit)
+for (i in 1:nrow(report_summary)) {
+  
+  report_summary$number_invalid_account_exp[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_account_exp) %>% 
+    filter(!is.na(invalid_account_exp)) %>% 
+    cSplit(
+      splitCols = "invalid_account_exp", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique() %>% 
+    nrow()
+}
+rm(i)
 
-highland_invalid_fund <- 
-  highland_ucoa %>%
-  filter(!is.na(invalid_fund)) %>%
-  cSplit(
-    splitCols = "invalid_fund",
-    sep = ",",
-    direction = "long") %>%
-  select(invalid_fund) %>%
-  unique() %>%
-  arrange(invalid_fund)
+for (i in 1:nrow(report_summary)) {
+  
+  report_summary$number_invalid_account_rev[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_account_rev) %>% 
+    filter(!is.na(invalid_account_rev)) %>% 
+    cSplit(
+      splitCols = "invalid_account_rev", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique() %>% 
+    nrow()
+}
+rm(i)
 
-highland_invalid_funct <- 
-  highland_ucoa %>%
-  filter(!is.na(invalid_funct)) %>%
-  cSplit(
-    splitCols = "invalid_funct",
-    sep = ",",
-    direction = "long") %>%
-  select(invalid_funct) %>%
-  unique() %>%
-  arrange(invalid_funct)
+report_summary <- 
+  report_summary %>% 
+  filter(!is.na(t_id))
 
-highland_invalid_account_exp <- 
-  highland_ucoa %>%
-  filter(!is.na(invalid_account_exp)) %>%
-  cSplit(
-    splitCols = "invalid_account_exp",
-    sep = ",",
-    direction = "long") %>%
-  select(invalid_account_exp) %>%
-  unique() %>%
-  arrange(invalid_account_exp)
+report_summary$percent_vague_function <- 
+  report_summary$t_id %>% 
+  map_dbl(check_percentage_of_vague_ucoa, "funct", ucoa)
 
-highland_invalid_account_rev <- 
-  highland_ucoa %>%
-  filter(!is.na(invalid_account_rev)) %>%
-  cSplit(
-    splitCols = "invalid_account_rev",
-    sep = ",",
-    direction = "long") %>%
-  select(invalid_account_rev) %>%
-  unique() %>%
-  arrange(invalid_account_rev)
+report_summary$percent_vague_exp <- 
+  report_summary$t_id %>% 
+  map_dbl(check_percentage_of_vague_ucoa, "exp", ucoa)
+
+report_summary$percent_vague_rev <- 
+  report_summary$t_id %>% 
+  map_dbl(check_percentage_of_vague_ucoa, "rev", ucoa)
 ```
 
-```{r, eval=FALSE}
-# write.csv(report, "batch_compliance_report.csv", row.names = FALSE)
+## Individual Files for Invalid Data
 
-write_csv(report, "test_entities_v_01.csv", row.names = FALSE)
+*Note: As of 2019-07-30, Excel will round the numbers in the .csv files. Use Notepad or some other application instead.*
 
-report_invalid_dates %>% 
-  filter(entity_name == "Highland City") %>% 
-  select(invalid_date, uploaded_file, transaction_type, upload_date, 
-         begin_txn_date, end_txn_date, file_record_count, 
-         file_total_dollar_amount = file_total_amount, 
-         upload_username = username) %>% 
-  write_csv("highland_posting_dates.csv")
+Not 19-characters:
 
-write_csv(highland_invalid_summary, "highland_invalid_summary.csv")
-write_csv(highland_non_17_digits, "highland_non_17_digits.csv")
-write_csv(highland_invalid_fund, "highland_invalid_fund.csv")
-write_csv(highland_invalid_funct, "highland_invalid_funct.csv")
-write_csv(highland_invalid_account_exp, "highland_invalid_account_exp.csv")
-write_csv(highland_invalid_account_rev, "highland_invalid_account_rev.csv")
+```{r}
+list_not_19_char <- list()
+
+for (i in 1:nrow(report_summary)) {
+
+  list_not_19_char[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(not_19_char) %>% 
+    filter(!is.na(not_19_char)) %>% 
+    cSplit(
+      splitCols = "not_19_char", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique()
+}
+rm(i)
+
+names(list_not_19_char) <- report_summary$entity_name
+
+for (i in names(list_not_19_char)) {
+  
+  if (nrow(list_not_19_char[[i]]) > 0) {
+    
+   write_csv(list_not_19_char[[i]], paste0(i, "_not_19_chars.csv")) 
+  }
+}
+rm(i)
+```
+
+Number Invalid Fund:
+
+```{r}
+list_invalid_fund <- list()
+
+for (i in 1:nrow(report_summary)) {
+
+  list_invalid_fund[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_fund) %>% 
+    filter(!is.na(invalid_fund)) %>% 
+    cSplit(
+      splitCols = "invalid_fund", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique()
+}
+rm(i)
+
+names(list_invalid_fund) <- report_summary$entity_name
+
+for (i in names(list_invalid_fund)) {
+  
+  if (nrow(list_invalid_fund[[i]]) > 0) {
+    
+   write_csv(list_invalid_fund[[i]], paste0(i, "_invalid_fund.csv")) 
+  }
+}
+rm(i)
+```
+
+Number Invalid Function:
+
+```{r}
+list_invalid_funct <- list()
+
+for (i in 1:nrow(report_summary)) {
+
+  list_invalid_funct[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_funct) %>% 
+    filter(!is.na(invalid_funct)) %>% 
+    cSplit(
+      splitCols = "invalid_funct", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique()
+}
+rm(i)
+
+names(list_invalid_funct) <- report_summary$entity_name
+
+for (i in names(list_invalid_funct)) {
+  
+  if (nrow(list_invalid_funct[[i]]) > 0) {
+    
+   write_csv(list_invalid_funct[[i]], paste0(i, "_invalid_function.csv")) 
+  }
+}
+rm(i)
+```
+
+Number Invalid Account Exp:
+
+```{r}
+list_invalid_account_exp <- list()
+
+for (i in 1:nrow(report_summary)) {
+
+  list_invalid_account_exp[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_account_exp) %>% 
+    filter(!is.na(invalid_account_exp)) %>% 
+    cSplit(
+      splitCols = "invalid_account_exp", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique()
+}
+rm(i)
+
+names(list_invalid_account_exp) <- report_summary$entity_name
+
+for (i in names(list_invalid_account_exp)) {
+  
+  if (nrow(list_invalid_account_exp[[i]]) > 0) {
+    
+   write_csv(list_invalid_account_exp[[i]], paste0(i, "_invalid_account_exp.csv")) 
+  }
+}
+rm(i)
+```
+
+Number Invalid Account Rev:
+
+```{r}
+list_invalid_account_rev <- list()
+
+for (i in 1:nrow(report_summary)) {
+
+  list_invalid_account_rev[[i]] <- 
+    entity_batches_invalid %>% 
+    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    select(invalid_account_rev) %>% 
+    filter(!is.na(invalid_account_rev)) %>% 
+    cSplit(
+      splitCols = "invalid_account_rev", 
+      sep = ",", 
+      direction = "long",
+      type.convert = FALSE) %>%  
+    unique()
+}
+rm(i)
+
+names(list_invalid_account_rev) <- report_summary$entity_name
+
+for (i in names(list_invalid_account_rev)) {
+  
+  if (nrow(list_invalid_account_rev[[i]]) > 0) {
+    
+   write_csv(list_invalid_account_rev[[i]], paste0(i, "_invalid_account_rev.csv")) 
+  }
+}
+rm(i)
 ```
 
 # DBMS Disconnection
