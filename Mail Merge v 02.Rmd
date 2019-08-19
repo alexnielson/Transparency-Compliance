@@ -1,0 +1,417 @@
+---
+title: "Mail Merge v 02"
+author: "Michael Jensen"
+date: "August 2019"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Compile and format the information needed to send the 60-day Warning postcards or the Hold/Suspend Notices to local governments that are non-compliant with OSA or State Treasurer reporting requirements.
+
+*"Mail Merge v. 02" is based on "MailMerge Script," which was written by Alexandra Nelson.*
+
+**Input(s)**
+
+```{r}
+dsn_salesforce <- "Salesforce"
+
+# Select the appropriate notice type:
+notice_type <- 
+  "60_day_notice"
+  # "hold"
+  # "suspend"
+
+# Load the Missing D&I Report, which comes from the Office of the State 
+# Treasurer (2019-08-12: The report came in three separate formats, and so 
+# Brook thought it would be easier for her to manually enter the missing 
+# reports than for me to wrangle the data and import it. Hopefully the OST will
+# figure out a betterway to track the reports and send us a single .csv file
+# next time):
+
+```
+
+**Output(s)**
+
+A .csv file containing a record for each entity that is missing a required report, with the following fields:
+
+* Entity name
+* Entity CFO name
+* Entity CAO name
+* Entity address information
+* A field for each report an entity is missing
+
+# Libraries and Data Sources
+
+```{r}
+library(data.table)
+library(magrittr)
+library(odbc)
+library(readxl)
+library(splitstackshape)
+library(svDialogs)
+library(tidyverse)
+
+odbc_salesforce <- dbConnect(odbc::odbc(), dsn_salesforce)
+rm(dsn_salesforce)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+  # Arguments:
+  #  address_one (char): The portion of the complete address corresponding to 
+  #    street_one.
+  #  address_two (char):The portion of the complete address corresponding to 
+  #    street_two.
+  #  street_one (char): The default street address.
+  #  street_two (char): The street address to compare against.
+```
+
+### find_an_address()
+
+```{r}
+find_an_address <- function(street_one, street_two, address_one, address_two) {
+  # Compare two street addresses and select the corresponding address 
+  # information for the street address that is not NA.
+  #
+  # Arguments:
+  #  street_one (char): The default street address.
+  #  street_two (char): The street address to compare against.
+  #  address_one (char): The portion of the complete address corresponding to 
+  #    street_one.
+  #  address_two (char):The portion of the complete address corresponding to 
+  #    street_two.
+  #
+  # Returns:
+  #   Character.
+  
+  if (is.na(street_one) && !is.na(street_two)) {
+    
+    address_two
+  
+  } else {address_one}
+}
+```
+
+# Execution
+
+## Contact Information
+
+```{r}
+account <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      a.Id                       AS sf_id,
+      a.Name                     AS entity_name, 
+      r.Name                     AS record_type,
+      Is_Solely_Fee_Assessing__c AS non_taxing_entity,
+      ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode,
+      BillingStreet, BillingCity, BillingState, BillingPostalCode
+    FROM Account AS a
+    JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    WHERE IsDeleted = FALSE
+    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    AND a.Name <> 'test city 2'
+    AND RecordTypeId IN (
+      SELECT id
+      FROM RecordType
+      WHERE Name IN (
+        'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+        'County', 'District Health', 'Housing', 
+        'Independent/Quasi State Entity', 'Interlocal', 
+        'Local and Special Service District', 'Mental Health', 
+        'Redevelopment Agency/Project Area', 
+        'School District or Charter School', 'Town'))") %>% 
+  mutate(street = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingStreet),
+                      address_two = as.list(BillingStreet)),
+                    find_an_address),
+         city   = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingCity),
+                      address_two = as.list(BillingCity)),
+                    find_an_address),    
+         state   = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingState),
+                      address_two = as.list(BillingState)),
+                    find_an_address),         
+         zip     = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingPostalCode),
+                      address_two = as.list(BillingPostalCode)),
+                    find_an_address)) %>% 
+  select(sf_id, entity_name, record_type, non_taxing_entity, 
+         street, city, state, zip)
+
+cfo <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name            AS entity_name, 
+      c.Name            AS cfo_name,
+      MailingStreet     AS cfo_street, 
+      MailingCity       AS cfo_city, 
+      MailingState      AS cfo_state, 
+      MailingPostalCode AS cfo_zipcode
+    FROM Contact AS c
+    JOIN Account AS a
+    ON c.AccountId = a.Id
+    WHERE c.IsDeleted = FALSE
+    AND c.IsDeactivated__c = FALSE
+    AND Role__c = 'CFO'")
+
+cao <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name            AS entity_name, 
+      c.Name            AS cao_name,
+      MailingStreet     AS cao_street, 
+      MailingCity       AS cao_city, 
+      MailingState      AS cao_state, 
+      MailingPostalCode AS cao_zipcode
+    FROM Contact AS c
+    JOIN Account AS a
+    ON c.AccountId = a.Id
+    WHERE c.IsDeleted = FALSE
+    AND c.IsDeactivated__c = FALSE
+    AND Role__c = 'CAO'")
+
+duplicated_contacts <- 
+  cfo[duplicated(cfo), ] %>% 
+  select(entity_name, contact_name = cfo_name) %>% 
+  bind_rows(cao[duplicated(cao), ] %>% 
+              select(entity_name, contact_name = cao_name))
+
+if (nrow(duplicated_contacts) > 0) {
+  
+  dlg_message("Salesforce has duplicate CFO and/or CAO information.
+              Though duplicates will be removed in this program, review 
+              duplicate_contacts and merge those contacts in Salesforce in order
+              to enhance data quality.")
+}
+rm(duplicated_contacts)
+  
+cfo <- 
+  cfo %>% 
+  data.table() %>% 
+  unique(by = c("entity_name", "cfo_name"))
+
+cao <- 
+  cao %>% 
+  data.table() %>% 
+  unique(by = c("entity_name", "cao_name"))
+```
+
+
+None of the entities that are in `account` and are missing an address have a CFO or CAO that has an address... So maybe there isn't a point to merging all that info.
+
+```{r}
+contact_info <- 
+  account %>% 
+  select(entity_name, street = account_street, city = account_city,
+         state = account_state, zipcode = account_zipcode)
+
+# missing_address <- 
+#   account %>% 
+#   filter(is.na(account_street)) %>%
+#   select(entity_name) %>% 
+#   left_join(cfo, by = "entity_name") %>% 
+#   filter(is.na(cfo_street)) %>% 
+#   select(-cfo_name) %>% 
+#   left_join(cao, by = "entity_name")
+# 
+# 
+# contact_info <- 
+#   account %>% 
+#   left_join(cfo, by = "entity_name") %>% 
+#   left_join(cao, by = "entity_name") %>% 
+#   mutate(street = ifelse(is.na(account)))
+
+
+
+
+  # mutate(address = ifelse(address.x == "NA NA, NA NA", address.y, address.x)) %>% 
+  # select(-address.x, -address.y) %>% 
+  # left_join(cao, by = "entity_name") %>% 
+  # mutate(address = ifelse(is.na(address.x), address.y, address.x),
+  #        cfo_name = ifelse(is.na(cfo_name), "Chief Financial Officer", cfo_name)) %>% 
+  # select(-cao_name, -address.x, -address.y)
+```
+
+## Missing Auditor Reports
+
+```{r}
+report_year <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      Name as report_year, Id
+    FROM Report_Year__c
+    WHERE IsDeleted = FALSE
+    AND Delinquent_Reports__c > 0")
+
+reports__c <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name AS entity_name, r.Name as report_name, Report_Status__c
+    FROM Reports__c AS r
+    JOIN Account AS a
+    ON r.Account__c = a.Id
+    WHERE r.IsDeleted = FALSE
+    AND Delinquent__c = TRUE
+    AND Required__c = TRUE
+    AND r.Name NOT IN ('Approved Budget', 'Ammended Budget')
+    AND r.Entity_Type__c IN (
+      SELECT Name
+      FROM RecordType
+      WHERE Name IN (
+        'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+        'County', 'District Health', 'Housing', 'Independent/Quasi State Entity',
+        'Institution of Higher Education', 'Interlocal', 
+        'Local and Special Service District', 'Mental Health', 'Non Profits', 
+        'Redevelopment Agency/Project Area', 'School District or Charter School',
+        'Town'))")
+
+missing_reports_osa <- 
+  reports__c %>% 
+  left_join(report_year, by = c("Report_Status__c" = "Id")) %>% 
+  unite(missing_report, report_year, report_name, sep = " ") %>% 
+  select(-Report_Status__c)
+
+missing_reports_osa <- 
+  missing_reports_osa %>% 
+  group_by(missing_report) %>% 
+  summarize(n = n()) %>% 
+  rowid_to_column("report_id") %>% 
+  select(-n) %>% 
+  right_join(missing_reports_osa, by = "missing_report")
+
+missing_reports_osa <- 
+  missing_reports_osa %>% 
+  spread(report_id, missing_report) %>% 
+  group_by(entity_name) %>% 
+  summarize_all(funs(toString(na.omit(.)))) %>% 
+  mutate_all(funs(replace(., . == 0, NA)))
+
+missing_reports_osa[missing_reports_osa == ""] <-  NA
+
+# Shift reports to the left:
+missing_reports_osa2 <- 
+  as.data.frame(
+    t(
+      apply(
+        missing_reports_osa, 
+        1, 
+        function(x){return(c(x[!is.na(x)], x[is.na(x)]))})))
+
+colnames(missing_reports_osa2) <- colnames(missing_reports_osa)
+
+missing_reports_osa <- missing_reports_osa2
+
+rm(report_year, reports__c, missing_reports_osa2)
+
+for (j in 2:length(missing_reports_osa)) {
+  
+  colnames(missing_reports_osa)[j] <- paste("Auditor ", j - 1)
+}
+rm(j)
+```
+
+```{r}
+# Difference between the Salesforce report and my report:
+# a <- 
+#   missing_reports_osa %>% distinct(entity_name)
+# 
+# b <- sf_auditor %>% distinct(`Entity Name`)
+# 
+# difference <- 
+#   a %>% 
+#   anti_join(b, by = c("entity_name" = "Entity Name"))
+```
+
+## Transparency
+
+```{r}
+missing_transp <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      a.Name AS entity_name,
+      t.Expenditure_Problem__c AS missing_exp,
+      t.Revenue_Problem__c AS missing_rev,
+      t.Wage_Problem__c AS missing_w2,
+      t.CreatedDate AS created_date
+    FROM Transparency_Reporting__c AS t
+    JOIN Account AS a
+    ON t.Account__c = a.Id
+    WHERE t.IsDeleted = FALSE
+    AND Status__c IN ('Delinquent_Enforced', 'Hold')
+    AND Account__c IN (
+      SELECT Id
+      FROM Account
+      WHERE RecordTypeId IN (
+        SELECT Id
+        FROM RecordType
+        WHERE Name IN (
+          'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+          'County', 'District Health', 'Housing', 'Independent/Quasi State Entity',
+          'Institution of Higher Education', 'Interlocal', 
+          'Local and Special Service District', 'Mental Health', 'Non Profits', 
+          'Redevelopment Agency/Project Area', 'School District or Charter School',
+          'Town')))") %>% 
+  mutate(created_date = as.Date(created_date)) %>% 
+  filter(created_date == max(created_date)) %>% 
+  select(-created_date)
+
+missing_transp <- 
+  cSplit(
+    missing_transp, 
+    c("missing_exp", "missing_rev", "missing_w2"), 
+    sep = ", ", 
+    direction = "wide")
+```
+
+## Join Reports
+
+```{r}
+missing_reports <- 
+  missing_reports_osa %>% 
+  full_join(missing_transp, by = "entity_name")
+
+report <-
+  missing_reports %>%
+  left_join(contact_info, by = c("entity_name"))
+
+duplicate <- duplicated(report$entity_name)
+
+report <- report[!duplicate, ]
+
+```
+
+```{r}
+write_csv(report, "missing_reports_aug_2019.csv")
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect()
+```
