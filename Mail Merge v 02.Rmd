@@ -225,8 +225,8 @@ None of the entities that are in `account` and are missing an address have a CFO
 ```{r}
 contact_info <- 
   account %>% 
-  select(entity_name, street = account_street, city = account_city,
-         state = account_state, zipcode = account_zipcode)
+  select(entity_name, street = street, city = city,
+         state = state, zipcode = zip)
 
 # missing_address <- 
 #   account %>% 
@@ -378,6 +378,12 @@ missing_transp <-
           'Redevelopment Agency/Project Area', 'School District or Charter School',
           'Town')))") %>% 
   mutate(created_date = as.Date(created_date)) %>% 
+  
+  # Filtering for the max created_date value may cause problems if any single entity
+  # or group of entities has a more recent compliance report than any others, as
+  # there will be entities missing from the filtered report. I want the max value
+  # for each entity...
+  # However, is this going to be an issue? Is it just something to be aware of?
   filter(created_date == max(created_date)) %>% 
   select(-created_date)
 
