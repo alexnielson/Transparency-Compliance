@@ -428,7 +428,7 @@ rm(exp_number_of_distinct_invalid_names,
 
 ```{r}
 exp_total_vendors <- 
-  exp_vendor_names %>% 
+  exp_names %>% 
   group_by(entity_name) %>% 
   summarise(total_vendors = n())
 
@@ -448,7 +448,7 @@ exp_entity_totals <-
 
 ```{r}
 rev_total_vendors <- 
-  rev_vendor_names %>% 
+  rev_names %>% 
   group_by(entity_name) %>% 
   summarise(total_vendors = n())
 
