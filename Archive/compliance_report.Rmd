@@ -1669,8 +1669,14 @@ compliance_report <-
          within_grace_period, upload_in_queue, catch_next_cycle, 
          send_60_day_notice, govt_type)
 
+# Create a report of the entities that are missing data that they should have
+# uploaded. This report, called `naught_list`, is used as a check against 
+# the list of entities in Salesforce that have a Transparency Status of 
+# "Delinquent Enforced" or "Hold." Use the row count of this report as a quick
+# check that Salesforce is correct.
+
 if (names(initial_report_date) == "previous_cycle") {
-  
+
   naughty_list <- 
     compliance_report %>% 
     filter(send_60_day_notice == 1)
