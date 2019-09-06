@@ -1675,7 +1675,7 @@ compliance_report <-
          send_60_day_notice, govt_type)
 
 # Create a report of the entities that are missing data that they should have
-# uploaded. This report, called `naught_list`, is used as a check against 
+# uploaded. This report, called `naughty_list`, is used as a check against 
 # the list of entities in Salesforce that have a Transparency Status of 
 # "Delinquent Enforced" or "Hold." Use the row count of this report as a quick
 # check that Salesforce is correct.
@@ -1695,17 +1695,31 @@ if (names(initial_report_date) == "previous_cycle") {
          catch_next_cycle == 0)
 }
 
-# Create a report of the entities that are missing three or more quarters of 
-# expense or revenue data or that are missing more than one year of payroll
-# data. Use this report to focus our efforts on entities that are 
-# missing the most information on Transparency.
+# Create a report of entities that deserve extra attention. An entity deserves
+# extra attention if it meets the following conditions:
+# 1) Is missing a lot of data, which means the entity is missing three or more 
+#    quarters of expense or revenue data or more than one year of payroll data.
+# 2) Doesn't show signs of recent Transparency-related activity, which means the
+#    entity meets one of the following conditions:
+# 2.1) Hasn't uploaded a batch in the previous month, which indicates the 
+#      entity hasn't uploaded the data and is just waiting for the data to be
+#      processed.
+# 2.2) Hasn't had a batch processed in the previous month, which indicates 
+#      the entity isn't working with Darrell or John to upload data. Were the 
+#      entity to have a recently processed batch, a large amount of data missing 
+#      would indicate that the entity is actually complying with Transparency 
+#      reporting requirements (e.g., deleting batches in order to upload 
+#      year-end corrections or deleting batches in order to fix a problem with 
+#      the entity's Uniform Chart of Accounts field).
 
-extra_naughty_list <- 
+needs_extra_attention <- 
   compliance_report %>% 
   filter(
-    str_count(compliance_report$missing_exp, ",") > 2 |
-    str_count(compliance_report$missing_rev, ",") > 2 |
-    str_count(compliance_report$missing_w2, ",") > 0 )
+    (str_count(compliance_report$missing_exp, ",") > 2 |
+     str_count(compliance_report$missing_rev, ",") > 2 |
+     str_count(compliance_report$missing_w2, ",") > 0),
+    (last_uploaded_batch  < Sys.Date() - months(1) |
+     last_processed_batch < Sys.Date() - months(1)))
 
 if (!exists("subset_of_entities")) {
   
@@ -1722,9 +1736,9 @@ if (!exists("subset_of_entities")) {
       path = paste0(file_path, Sys.Date(), " SF Status Should Be DE or Hold.csv"),
       na = "")
   
-  extra_naughty_list %>% 
+  needs_extra_attention %>% 
     write_csv(
-      path = paste0(file_path, Sys.Date(), " Need Extra Attention.csv"),
+      path = paste0(file_path, Sys.Date(), " Needs Extra Attention.csv"),
       na = "")
 }
 ```
