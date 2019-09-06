@@ -36,7 +36,11 @@ names(initial_report_date) <-
 
 **Output(s)**
 
-A report indicating whether a government is missing one or more required reports.
+* A report indicating whether a government is missing one or more required reports.
+* A report of entities that should have a Transparency Status in Salesforce equal to "Delinquent Enforced" or "Hold." A discrepancy between this report and Salesforce indicates there is a problem somewhere that needs to be resolved.
+* A report of entities that can be used to focus our attention on entities that are missing the most financial information in Transparency, which means that the entity meets at least one of the following conditions:
+  + Missing three or more quarters of expense or revenue reports.
+  + Missing two or more years of payroll information.
 
 # Libraries and Data Sources
 
@@ -1034,7 +1038,8 @@ sf_local_gov <-
           AND Name NOT IN (
             'Intermountain Power Agency', 
             'Utah Associated Municipal Power Systems', 
-            'Utah Municipal Power Agency')
+            'Utah Municipal Power Agency',
+            'test city 2')
           AND (
             Expense_Revenue_Start_Date__c <= DATE() OR 
             Expense_Revenue_Start_Date__c IS NULL)")) %>% 
@@ -1690,17 +1695,37 @@ if (names(initial_report_date) == "previous_cycle") {
          catch_next_cycle == 0)
 }
 
+# Create a report of the entities that are missing three or more quarters of 
+# expense or revenue data or that are missing more than one year of payroll
+# data. Use this report to focus our efforts on entities that are 
+# missing the most information on Transparency.
+
+extra_naughty_list <- 
+  compliance_report %>% 
+  filter(
+    str_count(compliance_report$missing_exp, ",") > 2 |
+    str_count(compliance_report$missing_rev, ",") > 2 |
+    str_count(compliance_report$missing_w2, ",") > 0 )
+
 if (!exists("subset_of_entities")) {
   
-  file_name <- paste0(Sys.Date(),".csv")
-
   file_path <-
     "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
   
   compliance_report %>%
-    write.csv(
-      file = paste0(file_path, file_name),
-      row.names = FALSE)
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Compliance Report.csv"),
+      na = "")
+  
+  naughty_list %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " SF Status Should Be DE or Hold.csv"),
+      na = "")
+  
+  extra_naughty_list %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Need Extra Attention.csv"),
+      na = "")
 }
 ```
 
