@@ -43,9 +43,6 @@ dsn_salesforce <- "Salesforce"
   + The number of invalid function codes
   + The number of invalid expense account codes
   + The number of invalid revenue account codes
-  + The percentage of transactions that have a vague function code
-  + The percentage of transactions that have a vague expense account code
-  + The percentage of transactions that have a vague revenue account code
 
 * For each entity with `posting_date` violations, a .csv file containing the following information:
   + Entity Salesforce ID
@@ -107,83 +104,6 @@ download.file(
   #     "exp" = expense, "rev" = revenue).
 ```
 
-## check_percentage_of_vague_ucoa
-
-```{r}
-check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
-  # Determine the percentage of an entity's transactions that use a valid but 
-  # vague UCoA code.
-  #
-  # Arguments:
-  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
-  #     rather than Transparency.
-  #   ucoa_type (char): The UCoA component to check ("funct" = function,
-  #     "exp" = expense, "rev" = revenue).
-  #   ucoa (list): The list containing the Fund, Function, and Account codes 
-  #     from OSA's Uniform Chart of Accounts.
-  #
-  # Value:
-  #   Numeric.
-  # 
-  # Comments:
-  #   The UCoA code is the key to analyzing, in aggregate, local government 
-  #   financial data. The UCoA code is minimally useful if governments are 
-  #   using only the most general code (e.g., coding a transaction as
-  #   100-000000-30000000 isn't useful).
-  
-  reported_ucoa <- 
-    dbGetQuery(
-      odbc_aws,
-      paste("
-            SELECT account_number, type
-            FROM transaction
-            WHERE batch_id IN (
-              SELECT id
-              FROM batch
-              WHERE entity_id = ", t_id, "
-              AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))")) %>% 
-    as_tibble() %>% 
-    filter(nchar(account_number) == 19)
-
-  if (ucoa_type == "funct") {
-    
-    vague_ucoa_codes <- ucoa[["vague_funct"]][["NUMBER"]]
-    
-    reported_ucoa <- 
-      reported_ucoa %>% 
-      .[["account_number"]] %>% 
-      substr(5, 10)
-    
-  } else if (ucoa_type == "exp") {
-    
-    vague_ucoa_codes <- ucoa[["vague_exp"]][["NUMBER"]]
-    
-    reported_ucoa <- 
-      reported_ucoa %>% 
-      filter(type == 1) %>% 
-      .[["account_number"]] %>% 
-      substr(12, 19)
-    
-  } else if (ucoa_type == "rev") {
-    
-    vague_ucoa_codes <- ucoa[["vague_rev"]][["NUMBER"]]
-    
-    reported_ucoa <- 
-      reported_ucoa %>% 
-      filter(type == 2) %>% 
-      .[["account_number"]] %>% 
-      substr(12, 19)
-  }
-  
-  reported_vague_ucoa <- 
-    reported_ucoa[reported_ucoa %in% vague_ucoa_codes]
-  
-  percent_vague <- 
-    (length(reported_vague_ucoa) / length(reported_ucoa)) * 100
-
-  round(percent_vague)
-}
-```
 
 ## check_posting_date
 
@@ -761,56 +681,16 @@ ucoa_account_rev <-
 #   ucoa_account %>% 
 #   filter(str_detect(NUMBER, "^4001"))
 
-ucoa_vague_funct <- 
-  ucoa_function %>% 
-  filter(
-    NUMBER == "000000" |
-    NUMBER == "100000" |
-    NUMBER == "200000" |
-    NUMBER == "300000" |
-    NUMBER == "400000" |
-    NUMBER == "500000")
-
-ucoa_vague_exp <- 
-  ucoa_account_exp %>% 
-  filter(
-    NUMBER == "40000000" |
-    NUMBER == "40010000" |
-    NUMBER == "40020000" |
-    NUMBER == "40030000" |
-    NUMBER == "40040000" |
-    NUMBER == "40050000" |
-    NUMBER == "40060000" |
-    NUMBER == "40070000" |
-    NUMBER == "40080000" |
-    NUMBER == "40110000" |
-    NUMBER == "40170000" )
-
-ucoa_vague_rev <- 
-  ucoa_account_rev %>% 
-  filter(
-    NUMBER == "30000000" |
-    NUMBER == "30010000" |
-    NUMBER == "30020000" |
-    NUMBER == "30030000" |
-    NUMBER == "30040000" |
-    NUMBER == "30050000" |
-    NUMBER == "30060000" |
-    NUMBER == "30070000" )
-
 ucoa <-
   list(
     fund        = ucoa_fund,
     funct       = ucoa_function,
     account     = ucoa_account,
     account_exp = ucoa_account_exp,
-    account_rev = ucoa_account_rev,
-    vague_funct = ucoa_vague_funct,
-    vague_exp   = ucoa_vague_exp,
-    vague_rev   = ucoa_vague_rev)
+    account_rev = ucoa_account_rev)
 
 rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
-   ucoa_account_rev, ucoa_vague_funct, ucoa_vague_exp, ucoa_vague_rev)
+   ucoa_account_rev)
 ```
 
 ## Reports
@@ -905,10 +785,7 @@ report_summary <-
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
     number_invalid_account_exp = NA,
-    number_invalid_account_rev = NA,
-    percent_vague_function     = NA,
-    percent_vague_exp          = NA,
-    percent_vague_rev          = NA)
+    number_invalid_account_rev = NA)
 
 for (i in 1:nrow(report_summary)) {
   
@@ -1014,18 +891,6 @@ rm(i)
 report_summary <- 
   report_summary %>% 
   filter(!is.na(t_id))
-
-report_summary$percent_vague_function <- 
-  report_summary$t_id %>% 
-  map_dbl(check_percentage_of_vague_ucoa, "funct", ucoa)
-
-report_summary$percent_vague_exp <- 
-  report_summary$t_id %>% 
-  map_dbl(check_percentage_of_vague_ucoa, "exp", ucoa)
-
-report_summary$percent_vague_rev <- 
-  report_summary$t_id %>% 
-  map_dbl(check_percentage_of_vague_ucoa, "rev", ucoa)
 ```
 
 ## Individual Files for Invalid Data
