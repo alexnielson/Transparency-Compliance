@@ -52,12 +52,89 @@ download.file(
 ## Argument Definitions
 
 ```{r, eval=FALSE}
+  #   reported_ucoa (tibble): The tibble output of query_reported_ucoa().
   #   t_id (num): The entity's Transparency ID, as queried from Salesforce
   #     rather than Transparency.
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
   #   ucoa (list): The list containing the Fund, Function, and Account codes 
   #     from OSA's Uniform Chart of Accounts.
   #   ucoa_type (char): The UCoA component to check ("funct" = function,
   #     "exp" = expense, "rev" = revenue).
+```
+
+
+## query_reported_ucoa
+
+```{r}
+query_reported_ucoa <- function(t_id) {
+  # Query an entity's ucoa and type information for each reported transaction.
+  #
+  # Arguments:
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #
+  # Value.
+  #   Tibble.
+  #
+  # Comments:
+  #   Some entities are missing the leading zero in the governmental activities,
+  #   business-type activities, and discrete component unit fund numbers. This 
+  #   function adds the leading zero back in.
+  
+  reported_ucoa <- 
+    dbGetQuery(
+      odbc_aws,
+      paste("
+            SELECT account_number, type
+            FROM transaction
+            WHERE batch_id IN (
+              SELECT id
+              FROM batch
+              WHERE entity_id = ", t_id, "
+              AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))
+            AND type IN (1, 2)")) %>% 
+    as_tibble() %>% 
+    mutate(
+      account_number = if_else(
+                        nchar(account_number, allowNA = TRUE) == 18 &
+                        substring(.$account_number, 1, 2) %in% 
+                          (c(10:39) %>% as.character()), 
+                        str_pad(account_number, width = 19, side = "left", "0"),
+                        account_number))
+}
+```
+
+## check_percentage_of_invalid_ucoa
+
+```{r}
+check_percentage_of_invalid_ucoa <- function(trxn_type, reported_ucoa, ucoa) {
+  # Determine the percentage of an entity's transactions that use an invalid
+  # UCoA code for the associated transaction type.
+  #
+  # Arguments:
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
+  #   reported_ucoa (tibble): The tibble output of query_reported_ucoa().
+  #   ucoa (list): The list containing the Fund, Function, and Account codes 
+  #     from OSA's Uniform Chart of Accounts.
+  #
+  # Value:
+  #   Numeric.
+  
+  total_ucoa <- nrow(reported_ucoa)
+  
+
+  
+  
+  invalid_ucoa <- 
+    reported_ucoa %>% 
+    filter(type == trxn_type) %>% 
+    filter(!substring(account_number, 1, 3) %in% ucoa$fund$NUMBER)
+    
+    # filter(!account_number %in% ucoa$account_exp$NUMBER)
+   
+  
+   
+}
 ```
 
 ## check_percentage_of_vague_ucoa
@@ -96,8 +173,8 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
               WHERE entity_id = ", t_id, "
               AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))")) %>% 
     as_tibble() %>% 
-    filter(nchar(account_number, keepNA = TRUE) == 19) %>% 
-    filter(account_number != NA)
+    filter(nchar(account_number, allowNA = TRUE) == 19) %>% 
+    filter(!is.na(account_number)
 
   if (ucoa_type == "funct") {
     
@@ -144,6 +221,9 @@ check_percentage_of_vague_ucoa <- function(t_id, ucoa_type, ucoa) {
 ## Salesforce
 
 ```{r}
+# Note that I do not query LEAs. They are managed by USBE, which uses a
+# different chart of accounts. I also do not query higher education.
+
 sf_data <-
   dbGetQuery(
     odbc_sf,
@@ -172,7 +252,6 @@ sf_data <-
             'Local_and_Special_Service_District',
             'Mental_Health',
             'Redevelopment_Agency_Project_Area',
-            'School_District_or_Charter_School',
             'Town'))
           AND Account.Entity_Status__c IN (
             'Current',
@@ -215,11 +294,15 @@ ucoa_account  <- ucoa_account  %>% slice(-1, -2)
 # I don't think I need the fund numbers in this code... hold on to it until I'm
 # done with the program, just in case.
 extra_fund_numbers <- 
-  c(202:298, 302:398, 402:448, 452:498, 502:598, 602:698, 702:798) %>% 
+  c(11:19, 21:29, 31:39, 
+    202:298, 302:398, 402:448, 452:498, 502:598, 602:698, 702:798) %>% 
   as.character() %>% 
   enframe(name = NULL) %>% 
   rename("NUMBER" = "value") %>% 
-  mutate("SHORT DESCRIPTION" = NA, "FULL DESCRIPTION" = NA, "DETAIL" = NA)
+  mutate("SHORT DESCRIPTION" = NA, "FULL DESCRIPTION" = NA, "DETAIL" = NA,
+         NUMBER = if_else(nchar(NUMBER) == 2, 
+                          str_pad(NUMBER, width = 3, side = "left", "0"), 
+                          NUMBER))
 
 ucoa_fund <- 
   ucoa_fund %>% 
@@ -297,6 +380,16 @@ rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
 ## Report
 
 ```{r}
+reported_ucoa <- query_reported_ucoa(t_id)
+
+perc_invalid_exp
+
+perc_invalid_rev
+```
+
+
+
+```{r}
 
 # The error I get when I run the code below is:
 # Error in nchar(account_number, keepNA = TRUE): invalid multibyte string,
@@ -305,11 +398,14 @@ report <-
   sf_data %>% 
   filter(!is.na(t_id)) %>% 
   mutate(
-    percent_vague_function = report$t_id %>%                 
+    percent_vague_function = t_id %>%                 
                              map_dbl(
                                check_percentage_of_vague_ucoa, 
                                "funct", 
                                ucoa))
+
+
+check_percentage_of_vague_ucoa(299, "funct", ucoa)
 ```
 
 ```{r}
