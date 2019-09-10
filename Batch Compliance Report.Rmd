@@ -698,19 +698,28 @@ rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
 ## Invalid `fiscal_year` and `type`
 
 ```{r}
+entity_ids <- 
+  dbGetQuery(odbc_aws, "SELECT id, name FROM entity")
+
 # Check fiscal_year:
 report_invalid_fy <- 
   dbGetQuery(
     odbc_aws,
     "
-    SELECT DISTINCT fiscal_year
+    SELECT DISTINCT batch_id, fiscal_year, batch.entity_id
     FROM transaction
-    WHERE fiscal_year NOT IN (
-      YEAR(CURDATE()), 
-      YEAR(CURDATE()) - 1,
-      YEAR(CURDATE()) - 2,
-      YEAR(CURDATE()) - 3,
-      YEAR(CURDATE()) - 4)")
+    JOIN batch
+    ON transaction.batch_id = batch.id
+    WHERE fiscal_year NOT IN (2014, 2015, 2016, 2017, 2018, 2019, 2020)")
+
+if (nrow(report_invalid_fy) > 0) {
+  
+  report_invalid_fy <- 
+    report_invalid_fy %>% 
+    left_join(entity_ids, by = c("entity_id" = "id")) %>% 
+    select(entity_name = name, entity_id, batch_id, fiscal_year) %>% 
+    arrange(entity_name)
+}
 
 # Check type:
 report_invalid_type <- 
@@ -719,12 +728,24 @@ report_invalid_type <-
     "
     SELECT DISTINCT
       batch.entity_id,
+      transaction.batch_id,
       transaction.type
     FROM transaction
     JOIN batch
     ON batch.id = transaction.batch_id
     WHERE transaction.type NOT IN (1, 2, 3, 7)
     AND batch.entity_id <> 1")
+
+if (nrow(report_invalid_type) > 0) {
+  
+  report_invalid_type <- 
+    report_invalid_type %>% 
+    left_join(entity_ids, by = c("entity_id" = "id")) %>% 
+    select(entity_name = name, entity_id, batch_id, type) %>% 
+    arrange(entity_name)
+}
+
+rm(entity_ids)
 ```
 
 ## Invalid 'posting_date` and `account_number`
