@@ -719,9 +719,25 @@ if (nrow(report_invalid_fy) > 0) {
     left_join(entity_ids, by = c("entity_id" = "id")) %>% 
     select(entity_name = name, entity_id, batch_id, fiscal_year) %>% 
     arrange(entity_name)
+  
+  report_invalid_fy <- 
+    report_invalid_fy$batch_id %>% 
+    map(
+      ~ dbGetQuery(
+        odbc_aws,
+        paste("
+          SELECT 
+            batch.id AS batch_id, upload_date, upload_username, upload_file
+          FROM batch
+          WHERE batch.id = ", .x))) %>% 
+    bind_rows() %>% 
+    left_join(report_invalid_fy, by = "batch_id") %>% 
+    select(entity_name, entity_id, batch_id, fiscal_year, upload_date,
+           upload_username, upload_file)
 }
 
-# Check type:
+# Check type (type 7 is technically valid, but so unreliable we've asked 
+# entities to stop reporting it, which is why I've excluded it here):
 report_invalid_type <- 
   dbGetQuery(
     odbc_aws,
@@ -733,7 +749,7 @@ report_invalid_type <-
     FROM transaction
     JOIN batch
     ON batch.id = transaction.batch_id
-    WHERE transaction.type NOT IN (1, 2, 3, 7)
+    WHERE transaction.type NOT IN (1, 2, 3)
     AND batch.entity_id <> 1")
 
 if (nrow(report_invalid_type) > 0) {
@@ -743,6 +759,22 @@ if (nrow(report_invalid_type) > 0) {
     left_join(entity_ids, by = c("entity_id" = "id")) %>% 
     select(entity_name = name, entity_id, batch_id, type) %>% 
     arrange(entity_name)
+  
+  report_invalid_type <- 
+    report_invalid_type$batch %>% 
+    map(
+      ~ dbGetQuery(
+        odbc_aws,
+        paste("
+          SELECT 
+            batch.id AS batch_id, upload_date, upload_username, upload_file
+          FROM batch
+          WHERE batch.id = ", .x))) %>% 
+    bind_rows() %>% 
+    left_join(report_invalid_type, by = "batch_id") %>% 
+    select(entity_name, entity_id, batch_id, type, upload_date, upload_username,
+           upload_file) %>% 
+    arrange(type)
 }
 
 rm(entity_ids)
