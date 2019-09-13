@@ -294,8 +294,7 @@ ucoa_account  <- ucoa_account  %>% slice(-1, -2)
 # I don't think I need the fund numbers in this code... hold on to it until I'm
 # done with the program, just in case.
 extra_fund_numbers <- 
-  c(11:19, 21:29, 31:39, 
-    202:298, 302:398, 402:448, 452:498, 502:598, 602:698, 702:798) %>% 
+  c(202:298, 302:398, 402:448, 452:498, 502:598, 602:698, 702:798) %>% 
   as.character() %>% 
   enframe(name = NULL) %>% 
   rename("NUMBER" = "value") %>% 

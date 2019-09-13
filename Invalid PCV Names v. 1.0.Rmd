@@ -1,0 +1,70 @@
+---
+title: "Identify Invalid Payee/Customer/Vendor Names"
+author: "Michael Jensen"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Identify the entities that have reported invalid or potentially invalid payee/customer/vendor names to Transparent Utah.
+
+**Input(s)**
+
+```{r}
+dsn_aws        <- "transpAWS"
+dsn_salesforce <- "Salesforce"
+```
+
+**Output(s)**
+
+1) A .csv file containing the following information for each active and participating entity:
+
+* Entity name
+* Entity Salesforce ID
+* Percentage of expense transactions with a P/C/V name of "Not Applicable"
+* Percentage of expense transactions with a P/C/V name of "Not Provided"
+* Percentage of expense transactions with a P/C/V name of that appears to be invalid
+* Percentage of revenue transactions with a P/C/V name of "Not Applicable"
+* Percentage of revenue transactions with a P/C/V name of "Not Provided"
+* Percentage of revenue transactions with a P/C/V name of that appears to be invalid
+
+2) A report for both expense and revenue transactions that an analyst can use to browse for meaningful information.
+
+**Comments**
+
+Local governments must report the name of the payee, customer, or vendor for each transaction reported to Transparent Utah, with two exceptions (*State of Utah Transparency Website File Layout*, 28 August 2013):
+
+* When the transaction does not have a payee, customer, or vendor (e.g., a journal voucher entry), report "Not Applicable."
+* When the payee, customer, or vendor's information is protected and will always remain protected (e.g., protected by GRAMA, HIPPA, or FERPA), report "Not Provided."
+
+In instances where the payee, customer, or vendor's information is protected but may become unprotected in the future (e.g., an undercover officer or an employee with a protective order), local governments must report the information and indicate it is temporarily protected. They do so by reporting a "P" in the Protection Indicator Field of the file they upload to Transparent Utah, which will mask the name, Doing Business As name, and gender of the temporarily protected person.
+
+# Libraries and Data Sources
+
+```{r}
+library(odbc)
+library(tidyverse)
+
+odbc_aws        <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_salesforce <- dbConnect(odbc::odbc(), dsn_salesforce)
+rm(dsn_aws, dsn_salesforce)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+
+```
+
+
+# Execution
+
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect()
+```

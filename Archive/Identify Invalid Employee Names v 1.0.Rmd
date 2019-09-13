@@ -1,0 +1,345 @@
+---
+title: "Identify Invalid Employee Names"
+author: "Michael Jensen"
+date: "September 2019"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Identify entities that have reported invalid or potentially invalid employee names to Transparent Utah.
+
+**Input(s)**
+
+```{r}
+dsn_aws        <- "transpAWS"
+dsn_salesforce <- "Salesforce"
+```
+
+**Output(s)**
+
+
+
+# Libraries and Data Sources
+
+```{r}
+library(odbc)
+library(stringr)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_salesforce)
+rm(dsn_aws, dsn_salesforce)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+
+```
+
+
+
+# Execution
+
+## Salesforce
+
+Query active and particpating entities with employees:
+
+```{r}
+sf_data <- 
+  dbGetQuery(
+    odbc_sf,
+    "SELECT 
+      Name               AS entity_name,
+      Transparency_ID__c AS t_id
+    FROM Account
+    WHERE RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE DeveloperName IN (
+        'AOG', 
+        'City',
+        'Conservation_District',
+        'County', 
+        'District_Health',     
+        'Housing', 
+        'Interlocal', 
+        'Local_and_Special_Service_District', 
+        'Mental_Health', 
+        'Redevelopment_Agency_Project_Area', 
+        'School_District_or_Charter_School',
+        'Town'))
+    AND Entity_Status__c IN (
+      'Current',
+      'On hold',
+      'Delinquent',
+      'Suspended')
+    AND Id NOT IN (
+      SELECT Transparency_Exemption__c.Account__c
+      FROM Transparency_Exemption__c
+      WHERE 
+        Transparency_Exemption__c.Exemption_Reason__c LIKE 'Reports with%' 
+      OR  
+        Transparency_Exemption__c.Exemption_Reason__c LIKE 'No W-2%')")
+```
+
+##
+
+```{r}
+
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect()
+```
+
+# Code from old program
+
+***
+The purpose of this report is to identify local governments that may have reported invalid employee names to Transparency.
+
+### Analysis
+
+**Identify Invalid Names**
+
+```{r setup, echo=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, message=FALSE}
+# Packages & Data Connections
+library(knitr)
+library(odbc)
+library(stringr)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
+odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce") 
+```
+
+```{sql, connection=odbc_sf, output.var="developer_name"}
+SELECT DISTINCT DeveloperName
+FROM RecordType
+WHERE DeveloperName NOT IN (
+ 'Chat', 'Community', 'Email', 'Phone', 'Social', 'CPA_Firm', 'Community_User',
+ 'Educational_Foundation', 'Financial_Institution', 'State_Agency',
+ 'Justice_Court', 'Non_Profits', 'Subpoena', 'LT_Gov_Document', 'Consolidation', 
+ 'AUP_Checklist', 'Budget_Checklist', 'LEA_Checklist', 'Large_Entity_Checklist',
+ 'Small_Entity_Checklist', 'Special_Purpose_Audit')
+```
+
+```{sql, connection=odbc_sf, output.var="active_local_govs"}
+SELECT Transparency_ID__c AS transparency_id,
+       Name               AS sf_entity_name
+FROM Account
+WHERE RecordTypeId IN (
+  SELECT Id
+  FROM RecordType
+  WHERE DeveloperName IN (
+    'AOG', 
+    'City',
+    'Conservation_District',
+    'County', 
+    'District_Health',     
+    'Housing', 
+    'Interlocal', 
+    'Local_and_Special_Service_District', 
+    'Mental_Health', 
+    'Redevelopment_Agency_Project_Area', 
+    'School_District_or_Charter_School',
+    'Town'))
+AND Entity_Status__c IN (
+  'Current',
+  'On hold',
+  'Delinquent',
+  'Suspended')
+```
+
+```{sql, connection=odbc_sf, output.var="no_employees"}
+SELECT Account.Name               AS sf_entity_name,
+       Account.Transparency_ID__c AS transparency_id
+FROM Account
+WHERE Account.Id IN (
+  SELECT Transparency_Exemption__c.Account__c
+  FROM Transparency_Exemption__c
+  WHERE Transparency_Exemption__c.Exemption_Reason__c LIKE 
+    '%Reports with another entity%' OR
+    Transparency_Exemption__c.Exemption_Reason__c LIKE '%No W-2 Employees%')
+```
+
+```{sql, connection=odbc_aws, output.var="govt_lvl"}
+SELECT DISTINCT govt_lvl
+FROM entity
+```
+
+Does the query below do what I want it to? I'm not certain I want the DISTINCT information.... do I?
+
+```{sql, connection=odbc_aws, output.var="employee_names"}
+SELECT DISTINCT vendor.id   AS employee_id,
+                vendor.name AS employee_name,
+                entity.id   AS transparency_id,
+                entity.name AS entity_name
+FROM vendor
+LEFT JOIN entity
+ON entity.id = vendor.entity_id
+WHERE vendor.id IN(
+  SELECT vendor_summary.vendor_id
+  FROM vendor_summary
+  WHERE type = 3)
+AND vendor.entity_id IN (
+  SELECT id
+  FROM entity
+  WHERE govt_lvl IN (
+    'CITY',
+    'COUNTY',
+    'HOUSING AUTHORITIES',
+    'INTERLOCAL',
+    'INDEPENDENT',
+    'K12 EDUCATION',
+    'LOCAL DISTRICTS'
+    'SERVICE DISTRICTS'))
+```
+
+```{r}
+employee_names <- 
+  employee_names %>% 
+  as_tibble()
+
+employee_names$employee_id <- 
+  as.numeric(employee_names$employee_id)
+
+employee_names$transparency_id <- 
+  as.numeric(employee_names$transparency_id)
+
+rm(developer_name, govt_lvl)
+```
+
+```{r}
+employee_names <- 
+  employee_names %>% 
+  semi_join(active_local_govs, by = "transparency_id") %>% 
+  anti_join(no_employees, by = "transparency_id")
+
+distinct_names <- 
+  employee_names %>% 
+  distinct(employee_name) %>% 
+  arrange(employee_name)
+
+rm(active_local_govs, distinct_names, no_employees)
+```
+
+After excluding local governments that are inactive, dissolved, or that do not have employees, I searched the data for names that are blank, contain only numbers, or contain text like "Not Available", "Not Provided," "Unavailable", "NA," and "N/A." I found the following:
+
+* Blank fields.
+* Fields containing some variation of "Not Provided."
+* Fields containing numbers unaccompanied by a name.
+
+```{r}
+invalid_names <- 
+  employee_names %>% 
+  filter(employee_name == "" |
+         str_detect(employee_name, regex("^not ", ignore_case = TRUE)) |
+         str_detect(employee_name, "^[0-9]+"))
+  
+number_of_entities <- 
+  invalid_names %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+number_of_not_provided <- 
+  invalid_names %>% 
+  filter(str_detect(employee_name, regex("^not ", ignore_case = TRUE))) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+number_of_blank_or_number <- 
+  invalid_names %>% 
+  filter(employee_name == "" |
+         str_detect(employee_name, "^[0-9]+")) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+distinct_invalid_names <- 
+  invalid_names %>% 
+  distinct(employee_name)
+
+number_of_distinct_invalid_names <- 
+  distinct_invalid_names %>% 
+  count() %>% 
+  as.numeric()
+
+rm(distinct_invalid_names)
+```
+
+By the numbers,
+
+* There are `r number_of_distinct_invalid_names` invalid or potentially invalid names across `r number_of_entities` local governments (including variations of "Not Provided").
+* There are `r number_of_blank_or_number` local governments that have reported a blank field or number as the employee name.
+* There are `r number_of_not_provided` local governments that have reported a "Not Provided" name.
+
+Per Transparency Board policy, the only valid entry for protected information is "Not Provided." Therefore,
+
+* Blank fields and fields containing only numbers are invalid and local governments should correct that information.
+* Local governments with a high percentage of "Not Provided" names should provide a reason for protecting so much information, or correct the names inappropriately identified as protected.
+
+```{r}
+rm(number_of_blank_or_number, number_of_distinct_invalid_names, 
+   number_of_entities, number_of_not_provided)
+```
+
+**Invalid Employee Name Totals, by Entity**
+
+```{r}
+total_employees <- 
+  employee_names %>% 
+  group_by(entity_name) %>% 
+  summarise(total_employees = n())
+
+entity_totals <- 
+  invalid_names %>% 
+  group_by(entity_name) %>% 
+  summarise(number_invalid = n()) %>% 
+  left_join(total_employees, by = "entity_name") %>% 
+  mutate(percent_invalid = (number_invalid / total_employees) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, percent_invalid, number_invalid, total_employees) %>% 
+  arrange(desc(percent_invalid), desc(number_invalid)) %>% 
+  kable(col.names = c("Entity Name", "% Invalid", "Number Invalid", 
+                      "Total Employees"), 
+        align = "l") %>% 
+  print()
+```
+
+**Invalid Employee Names, by Entity, by Invalid Name**
+
+```{r}
+name_totals <- 
+  invalid_names %>% 
+  group_by(entity_name, employee_name) %>% 
+  summarise(number_of_entries = n()) %>% 
+  left_join(total_employees, by = "entity_name") %>% 
+  mutate(percent_invalid = (number_of_entries / total_employees) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, employee_name, percent_invalid, number_of_entries,
+         total_employees) %>% 
+  arrange(desc(percent_invalid), desc(number_of_entries)) %>% 
+  kable(col.names = c("Entity Name", "Employee Name", "% Invalid", 
+                      "Number Invalid", "Total Employees"), 
+        align = "l") %>% 
+  print()
+```
+
+```{r}
+dbDisconnect(odbc_aws)
+dbDisconnect(odbc_sf)
+rm(list = ls())
+```
