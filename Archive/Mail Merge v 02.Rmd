@@ -1,5 +1,5 @@
 ---
-title: "Mail Merge v 02"
+title: "Mail Merge v 2.0"
 author: "Michael Jensen"
 date: "August 2019"
 output: html_notebook
@@ -10,7 +10,7 @@ output: html_notebook
 
 Compile and format the information needed to send the 60-day Warning postcards or the Hold/Suspend Notices to local governments that are non-compliant with OSA or State Treasurer reporting requirements.
 
-*"Mail Merge v. 02" is based on "MailMerge Script," which was written by Alexandra Nelson.*
+*This R program is based on Alexandra Nelson's "MailMerge Script, which is filed in S:\Localgov\LG Compliance\Compliance\Noncompliance Correspondence"*
 
 **Input(s)**
 
@@ -20,15 +20,13 @@ dsn_salesforce <- "Salesforce"
 # Select the appropriate notice type:
 notice_type <- 
   "60_day_notice"
-  # "hold"
-  # "suspend"
+  # "hold_or_suspend"
 
 # Load the Missing D&I Report, which comes from the Office of the State 
 # Treasurer (2019-08-12: The report came in three separate formats, and so 
 # Brook thought it would be easier for her to manually enter the missing 
-# reports than for me to wrangle the data and import it. Hopefully the OST will
-# figure out a betterway to track the reports and send us a single .csv file
-# next time):
+# reports than for me to wrangle the data and import it. Hopefully the State Treasurer's Office will figure out a better way to track the reports and send us
+# a single .csv file next time):
 
 ```
 
@@ -71,7 +69,7 @@ rm(dsn_salesforce)
   #  street_two (char): The street address to compare against.
 ```
 
-### find_an_address()
+## find_an_address()
 
 ```{r}
 find_an_address <- function(street_one, street_two, address_one, address_two) {
@@ -159,16 +157,24 @@ account <-
   select(sf_id, entity_name, record_type, non_taxing_entity, 
          street, city, state, zip)
 
+# CFOs and CAOs sometimes have an address that is different from the entity's
+# address. Though it would be more convenient for the CFO and CAO to receive the 
+# notice at the address specific to their contact information, I decided to 
+# send notices to the entity address. Given that the CFO and CAO can change 
+# without notifying OSA, it seems that sending the notice to the entity's 
+# address is the best way to make sure that someone within the entity 
+# organization will see it.
+
 cfo <- 
   dbGetQuery(
     odbc_salesforce,
     "SELECT
       a.Name            AS entity_name, 
-      c.Name            AS cfo_name,
-      MailingStreet     AS cfo_street, 
-      MailingCity       AS cfo_city, 
-      MailingState      AS cfo_state, 
-      MailingPostalCode AS cfo_zipcode
+      c.Name            AS cfo_name
+      -- MailingStreet     AS cfo_street, 
+      -- MailingCity       AS cfo_city, 
+      -- MailingState      AS cfo_state, 
+     --  MailingPostalCode AS cfo_zipcode
     FROM Contact AS c
     JOIN Account AS a
     ON c.AccountId = a.Id
@@ -181,11 +187,11 @@ cao <-
     odbc_salesforce,
     "SELECT
       a.Name            AS entity_name, 
-      c.Name            AS cao_name,
-      MailingStreet     AS cao_street, 
-      MailingCity       AS cao_city, 
-      MailingState      AS cao_state, 
-      MailingPostalCode AS cao_zipcode
+      c.Name            AS cao_name
+      -- MailingStreet     AS cao_street, 
+      -- MailingCity       AS cao_city, 
+      -- MailingState      AS cao_state, 
+      -- MailingPostalCode AS cao_zipcode
     FROM Contact AS c
     JOIN Account AS a
     ON c.AccountId = a.Id
@@ -193,66 +199,38 @@ cao <-
     AND c.IsDeactivated__c = FALSE
     AND Role__c = 'CAO'")
 
-duplicated_contacts <- 
-  cfo[duplicated(cfo), ] %>% 
-  select(entity_name, contact_name = cfo_name) %>% 
-  bind_rows(cao[duplicated(cao), ] %>% 
-              select(entity_name, contact_name = cao_name))
+# Check for entities with multiple CFOs:
+multiple_cfos <- 
+  cfo[duplicated(cfo$entity_name), "entity_name"] %>% 
+  tibble()
 
-if (nrow(duplicated_contacts) > 0) {
+multiple_caos <- 
+  cao[duplicated(cao$entity_name), "entity_name"] %>% 
+  tibble()
+
+if (nrow(multiple_cfos) > 0 || nrow(multiple_caos) > 0) {
   
-  dlg_message("Salesforce has duplicate CFO and/or CAO information.
-              Though duplicates will be removed in this program, review 
-              duplicate_contacts and merge those contacts in Salesforce in order
-              to enhance data quality.")
+  dlg_message(
+  "Salesforce has at least one entity with multiple CFOs or CAOs.
+  This program will select only one of the names to send a notice to.")
+  
+  cfo <- 
+    cfo %>% 
+    data.table() %>% 
+    unique(by = "entity_name")
+
+  cao <- 
+    cao %>% 
+    data.table() %>% 
+    unique(by = "entity_name")
 }
-rm(duplicated_contacts)
-  
-cfo <- 
-  cfo %>% 
-  data.table() %>% 
-  unique(by = c("entity_name", "cfo_name"))
 
-cao <- 
-  cao %>% 
-  data.table() %>% 
-  unique(by = c("entity_name", "cao_name"))
-```
-
-
-None of the entities that are in `account` and are missing an address have a CFO or CAO that has an address... So maybe there isn't a point to merging all that info.
-
-```{r}
 contact_info <- 
   account %>% 
-  select(entity_name, street = street, city = city,
-         state = state, zipcode = zip)
-
-# missing_address <- 
-#   account %>% 
-#   filter(is.na(account_street)) %>%
-#   select(entity_name) %>% 
-#   left_join(cfo, by = "entity_name") %>% 
-#   filter(is.na(cfo_street)) %>% 
-#   select(-cfo_name) %>% 
-#   left_join(cao, by = "entity_name")
-# 
-# 
-# contact_info <- 
-#   account %>% 
-#   left_join(cfo, by = "entity_name") %>% 
-#   left_join(cao, by = "entity_name") %>% 
-#   mutate(street = ifelse(is.na(account)))
-
-
-
-
-  # mutate(address = ifelse(address.x == "NA NA, NA NA", address.y, address.x)) %>% 
-  # select(-address.x, -address.y) %>% 
-  # left_join(cao, by = "entity_name") %>% 
-  # mutate(address = ifelse(is.na(address.x), address.y, address.x),
-  #        cfo_name = ifelse(is.na(cfo_name), "Chief Financial Officer", cfo_name)) %>% 
-  # select(-cao_name, -address.x, -address.y)
+  left_join(cfo, by = "entity_name") %>% 
+  left_join(cao, by = "entity_name") %>% 
+  mutate(cfo_name = if_else(is.na(cfo_name), "CFO", cfo_name),
+         cao_name = if_else(is.na(cao_name), "CAO", cao_name))
 ```
 
 ## Missing Auditor Reports
