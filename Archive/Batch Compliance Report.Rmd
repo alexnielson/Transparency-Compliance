@@ -602,19 +602,19 @@ sf_data <-
             SELECT Id
             FROM RecordType
             WHERE DeveloperName IN (
-            'AOG',
-            'City',
-            'Conservation_District',
-            'County',
-            'District_Health',
-            'Housing',
-            'Independent_Quasi_State_Entity',
-            'Interlocal',
-            'Local_and_Special_Service_District',
-            'Mental_Health',
-            'Redevelopment_Agency_Project_Area',
-            'School_District_or_Charter_School',
-            'Town'))
+              'AOG',
+              'City',
+              'Conservation_District',
+              'County',
+              'District_Health',
+              'Housing',
+              'Independent_Quasi_State_Entity',
+              'Interlocal',
+              'Local_and_Special_Service_District',
+              'Mental_Health',
+              'Redevelopment_Agency_Project_Area',
+              'School_District_or_Charter_School',
+              'Town'))
           AND Account.Entity_Status__c IN (
             'Current',
             'On hold',
@@ -695,7 +695,7 @@ rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
 
 ## Reports
 
-## Invalid `fiscal_year` and `type`
+### Invalid `fiscal_year` and `type`
 
 ```{r}
 entity_ids <- 
@@ -780,7 +780,7 @@ if (nrow(report_invalid_type) > 0) {
 rm(entity_ids)
 ```
 
-## Invalid 'posting_date` and `account_number`
+### Invalid 'posting_date` and `account_number`
 
 ```{r}
 # sf_data <- 
@@ -826,7 +826,7 @@ entity_batches_invalid <-
   arrange(entity_name, fiscal_year)
 ```
 
-## Summary Report
+### Summary Report
 
 ```{r}
 report_summary <- 
@@ -943,12 +943,38 @@ rm(i)
 
 report_summary <- 
   report_summary %>% 
-  filter(!is.na(t_id))
+  filter(!is.na(t_id)) %>% 
+  filter(!is.na(any_blank_or_na)         |
+         number_not_19_char         != 0 |
+         number_invalid_fund        != 0 |
+         number_invalid_function    != 0 |
+         number_invalid_account_exp != 0 |
+         number_invalid_account_rev != 0)
+```
+
+```{r}
+file_path <-
+  "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
+
+report_summary %>%
+  write_csv(
+    path = paste0(file_path, Sys.Date(), " Batch Compliance Report.csv"),
+    na = "")
+
+report_invalid_fy %>%
+  write_csv(
+    path = paste0(file_path, Sys.Date(), " Invalid FY Report.csv"),
+    na = "")
+
+report_invalid_type %>%
+  write_csv(
+    path = paste0(file_path, Sys.Date(), " Invalid Type Report.csv"),
+    na = "")
 ```
 
 ## Individual Files for Invalid Data
 
-*Note: As of 2019-07-30, Excel will round the numbers in the .csv files. Use Notepad or some other application instead.*
+*Note: As of 2019-07-30, Excel will round the numbers in the .csv files. Use Notepad or some other application instead when viewing the data.*
 
 Not 19-characters:
 
