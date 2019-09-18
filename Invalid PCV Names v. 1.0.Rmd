@@ -14,6 +14,9 @@ Identify the entities that have reported invalid or potentially invalid payee/cu
 ```{r}
 dsn_aws        <- "transpAWS"
 dsn_salesforce <- "Salesforce"
+
+# Input the most recently archived fiscal year:
+most_recent_archived_fy <- 2013
 ```
 
 **Output(s)**
@@ -44,10 +47,11 @@ In instances where the payee, customer, or vendor's information is protected but
 
 ```{r}
 library(odbc)
+library(stringr)
 library(tidyverse)
 
-odbc_aws        <- dbConnect(odbc::odbc(), dsn_aws)
-odbc_salesforce <- dbConnect(odbc::odbc(), dsn_salesforce)
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_salesforce)
 rm(dsn_aws, dsn_salesforce)
 ```
 
@@ -56,12 +60,228 @@ rm(dsn_aws, dsn_salesforce)
 ## Argument Definitions
 
 ```{r, eval=FALSE}
-
+  #   most_recent_archived_fy (num): The most recently archived fiscal year,
+  #     defined in the "Input(s)" section of this R program.
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   total_record_count (num): The number of non-archived expense or revenue
+  #     transactions an entity has reported to Transparent Utah.
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
 ```
 
+## count_records()
+
+```{r}
+count_records <- function(t_id, trxn_type) {
+  # Determine the number of non-archived expense or revenue transactions an
+  # entity has reported to Transparent Utah.
+  #
+  # Arguments:
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
+  #
+  # Value:
+  #   Numeric.
+
+  if (is.na(t_id)) {
+    
+    return(NA)
+  }
+
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT COUNT(id) AS record_count
+      FROM transaction
+      WHERE type = ", trxn_type, "
+      AND batch_id IN (
+        SELECT id
+        FROM batch
+        WHERE entity_id = ", t_id, ")")) %>% 
+  .$record_count %>% 
+  as.numeric()
+}
+```
+
+## perc_of_total()
+
+```{r}
+perc_of_total <- function(t_id, total_record_count, trxn_type) {
+  # Determine the vendor-to-total transaction percentage.
+  # 
+  # Arguments:
+  #   most_recent_archived_fy (num): The most recently archived fiscal year,
+  #     defined in the "Input(s)" section of this R program.
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   total_record_count (num): The number of non-archived expense or revenue
+  #     transactions an entity has reported to Transparent Utah.
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
+  #
+  # Value:
+  #   Numeric.
+  
+  if (is.na(t_id) || total_record_count == 0) {
+    
+    return(
+      tibble())
+  }
+  
+  vendor <- 
+    dbGetQuery(
+      odbc_aws,
+      paste("
+        SELECT 
+          entity.name AS entity_name,
+          vendor.name AS vendor_name, 
+          vendor.id   AS vendor_id
+        FROM vendor
+        LEFT JOIN entity
+        ON vendor.entity_id = entity.id
+        WHERE entity_id = ", t_id))
+  
+  vendor_summary <- 
+    dbGetQuery(
+      odbc_aws,
+      paste("
+        SELECT vendor_id, count
+        FROM vendor_summary
+        WHERE fiscal_year > ", most_recent_archived_fy, "
+        AND type = ", trxn_type, "
+        AND entity_id = ", t_id)) %>% 
+    group_by(vendor_id) %>% 
+    summarize(record_count = sum(count)) %>% 
+    left_join(vendor, by = "vendor_id") %>% 
+    select(entity_name, vendor_name, vendor_id, record_count)
+
+  vendor_summary %>% 
+    mutate(
+      percent = 
+        round((record_count / total_record_count) * 100, digits = 2)) %>% 
+    filter(percent >= 5.0) %>% 
+    arrange(desc(percent))
+}
+```
 
 # Execution
 
+## Salesforce
+
+Import active and participating entities:
+
+```{r}
+sf_data <-
+  dbGetQuery(
+    odbc_sf,
+    paste("
+          SELECT
+            Account.Name                  AS entity_name,
+            Account.Id                    AS sf_id,
+            Account.Transparency_ID__c    AS t_id
+            -- RecordType.DeveloperName      AS govt_type
+          FROM Account
+          JOIN RecordType
+          ON Account.RecordTypeId = RecordType.Id
+          WHERE Account.RecordTypeId IN (
+            SELECT Id
+            FROM RecordType
+            WHERE DeveloperName IN (
+              'AOG',
+              'City',
+              'Community_Reinvestment_Agency',
+              'Conservation_District',
+              'County',
+              'District_Health',
+              'Housing',
+              'Independent_Quasi_State_Entity',
+              'Institute_of_Higher_Education',
+              'Interlocal',
+              'Justice_Court',
+              'Local_and_Special_Service_District',
+              'Mental_Health',
+              'Redevelopment_Agency_Project_Area',
+              'School_District_or_Charter_School',
+              'Town'))
+          AND Account.Entity_Status__c IN (
+            'Current',
+            'On hold',
+            'Delinquent',
+            'Suspended')
+          AND Account.Name NOT IN (
+            'Intermountain Power Agency',
+            'Utah Associated Municipal Power Systems',
+            'Utah Municipal Power Agency')
+          AND (
+            Account.Wage_Start_Date__c <= DATE() OR
+            Account.Wage_Start_Date__c IS NULL)
+          ORDER BY Account.Name")) %>%
+  as_tibble()
+```
+
+## Transparent Utah
+
+```{r}
+invalid_names <- 
+  sf_data %>% 
+  mutate(
+    record_count_exp = map_dbl(t_id, count_records, trxn_type = 1),
+    record_count_rev = map_dbl(t_id, count_records, trxn_type = 2))
+
+high_perc_exp <- 
+  pmap(
+    list(
+      t_id               = as.list(invalid_names$t_id),
+      total_record_count = as.list(invalid_names$record_count_exp)),
+    perc_of_total,
+    trxn_type = 1) %>% 
+  bind_rows() %>% 
+  arrange(desc(percent))
+
+high_perc_rev <- 
+  pmap(
+    list(
+      t_id               = as.list(invalid_names$t_id),
+      total_record_count = as.list(invalid_names$record_count_rev)),
+    perc_of_total,
+    trxn_type = 2) %>% 
+  bind_rows() %>% 
+  arrange(desc(percent))
+```
+
+## Old Code
+
+```{r}
+pcv_names_exp <-
+  dbGetQuery(
+    odbc_aws,
+    "SELECT
+      vendor_summary.entity_id,
+      vendor_summary.vendor_id,
+      vendor.name AS vendor_name
+    FROM vendor_summary
+    LEFT JOIN vendor
+    ON vendor_summary.vendor_id = vendor.id
+    LEFT JOIN entity
+    ON vendor_summary.entity_id = entity.id
+    WHERE vendor_summary.type = 1
+    AND vendor_summary.entity_id <> 1")
+
+pcv_names_rev <-
+  dbGetQuery(
+    odbc_aws,
+    "SELECT
+      vendor_summary.entity_id,
+      vendor_summary.vendor_id,
+      vendor.name AS vendor_name
+    FROM vendor_summary
+    LEFT JOIN vendor
+    ON vendor_summary.vendor_id = vendor.id
+    LEFT JOIN entity
+    ON vendor_summary.entity_id = entity.id
+    WHERE vendor_summary.type = 2
+    AND vendor_summary.entity_id <> 1")
+```
 
 # DBMS Disconnection
 
