@@ -104,6 +104,44 @@ count_records <- function(t_id, trxn_type) {
 }
 ```
 
+## count_vendors()
+
+```{r}
+count_vendors <- function(t_id, trxn_type) {
+  # Determine the total number of vendors an entity has for expense or revenue
+  # transactions, for non-archived fiscal years.
+  #
+  # Arguments:
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   trxn_type (num): Transaction type (1 = expense, 2 = revenue).
+  #
+  # Value:
+  #   Numeric.
+  #
+  # Comments:
+  #   Entities with a high or low number of vendors may not be correctly
+  #   reporting vendor information to Transparent Utah.
+  
+  if (is.na(t_id)) {
+    
+    return(NA)
+  }
+  
+  dbGetQuery(
+      odbc_aws,
+      paste("
+        SELECT vendor_id
+        FROM vendor_summary
+        WHERE fiscal_year > ", most_recent_archived_fy, "
+        AND type = ", trxn_type, "
+        AND entity_id = ", t_id)) %>% 
+   distinct(vendor_id) %>% 
+   nrow() %>% 
+   as.numeric()
+}
+```
+
 ## perc_of_total()
 
 ```{r}
@@ -159,7 +197,7 @@ perc_of_total <- function(t_id, total_record_count, trxn_type) {
     mutate(
       percent = 
         round((record_count / total_record_count) * 100, digits = 2)) %>% 
-    filter(percent >= 5.0) %>% 
+    # filter(percent >= 5.0) %>% 
     arrange(desc(percent))
 }
 ```
@@ -219,7 +257,7 @@ sf_data <-
   as_tibble()
 ```
 
-## Transparent Utah
+## Transparent Utah - Vendor-to-Total Ratio
 
 ```{r}
 invalid_names <- 
@@ -248,6 +286,57 @@ high_perc_rev <-
   bind_rows() %>% 
   arrange(desc(percent))
 ```
+
+## Transparent Utah - Granite SD-like problems
+
+The problem with Granite SD's data is that the "SCH VENDOR ID: 123456" and "VENDOR ID: 123456" transactions are just above 0% of the LEA's total transactions.
+
+```{r}
+problem_names <- 
+  sf_data %>% 
+  filter(t_id == 57) %>% 
+  mutate(
+    record_count_exp = map_dbl(t_id, count_records, trxn_type = 1),
+    record_count_rev = map_dbl(t_id, count_records, trxn_type = 2))
+
+high_perc_exp <- 
+  pmap(
+    list(
+      t_id               = as.list(problem_names$t_id),
+      total_record_count = as.list(problem_names$record_count_exp)),
+    perc_of_total,
+    trxn_type = 1) %>% 
+  bind_rows() %>% 
+  arrange(desc(percent))
+
+high_perc_rev <- 
+  pmap(
+    list(
+      t_id               = as.list(problem_names$t_id),
+      total_record_count = as.list(problem_names$record_count_rev)),
+    perc_of_total,
+    trxn_type = 2) %>% 
+  bind_rows() %>% 
+  arrange(desc(percent))
+```
+
+```{r}
+
+
+total_vendors <- 
+  sf_data %>% 
+  mutate(total_vendors_exp = 
+           map_dbl(t_id, count_vendors, 1))
+```
+
+## Definitely Invalid Names
+
+Perhaps I need to tackle this problem from multiple angles.
+
+* A report of entities with a vendor having a total percentage of transactions greater than x%.
+* A report of the entities with a high total number of vendors.
+* A report of the entities with PCV names that we have determine are invalid or are likely invalid (this report would be similar to the first draft of the code)
+
 
 ## Old Code
 
