@@ -337,39 +337,299 @@ Perhaps I need to tackle this problem from multiple angles.
 * A report of the entities with a high total number of vendors.
 * A report of the entities with PCV names that we have determine are invalid or are likely invalid (this report would be similar to the first draft of the code)
 
+### Definitely Invalid Names - old code
 
-## Old Code
+#### Identify Valid and Invalid Names
 
 ```{r}
-pcv_names_exp <-
-  dbGetQuery(
-    odbc_aws,
-    "SELECT
-      vendor_summary.entity_id,
-      vendor_summary.vendor_id,
-      vendor.name AS vendor_name
-    FROM vendor_summary
-    LEFT JOIN vendor
-    ON vendor_summary.vendor_id = vendor.id
-    LEFT JOIN entity
-    ON vendor_summary.entity_id = entity.id
-    WHERE vendor_summary.type = 1
-    AND vendor_summary.entity_id <> 1")
+exp_names <- 
+  as_tibble(exp_names)
 
-pcv_names_rev <-
-  dbGetQuery(
-    odbc_aws,
-    "SELECT
-      vendor_summary.entity_id,
-      vendor_summary.vendor_id,
-      vendor.name AS vendor_name
-    FROM vendor_summary
-    LEFT JOIN vendor
-    ON vendor_summary.vendor_id = vendor.id
-    LEFT JOIN entity
-    ON vendor_summary.entity_id = entity.id
-    WHERE vendor_summary.type = 2
-    AND vendor_summary.entity_id <> 1")
+rev_names <- 
+  as_tibble(rev_names)
+
+entity_table$id <- 
+  as.integer(entity_table$id)
+
+exp_names$entity_id <- 
+  as.integer(exp_names$entity_id)
+
+exp_names$vendor_id <- 
+  as.integer(exp_names$vendor_id)
+
+rev_names$entity_id <- 
+  as.integer(rev_names$entity_id)
+
+rev_names$vendor_id <- 
+  as.integer(rev_names$vendor_id)
+
+exp_names <- 
+  exp_names %>% 
+  left_join(entity_table,
+            by = c("entity_id" = "id")) %>% 
+  select(entity_id, entity_name = name, vendor_id, vendor_name) %>% 
+  semi_join(sf_active_local_govs,
+            by = c("entity_id" = "transparency_id"))
+
+rev_names <- 
+  rev_names %>% 
+  left_join(entity_table,
+            by = c("entity_id" = "id")) %>% 
+  select(entity_id, entity_name = name, vendor_id, vendor_name) %>% 
+  semi_join(sf_active_local_govs,
+            by = c("entity_id" = "transparency_id"))
+
+rm(aws_entity_types, sf_active_local_govs, entity_table)
+```
+
+```{r, eval=FALSE}
+exp_distinct_names <- 
+  exp_names %>% 
+  distinct(vendor_name) %>% 
+  arrange(vendor_name)
+
+rev_distinct_names <- 
+  rev_names %>% 
+  distinct(vendor_name) %>% 
+  arrange(vendor_name)
+
+# rm(exp_distinct_names, rev_distinct_names)
+```
+
+I searched the names and found the following (as of October 2018):
+
+* "Not Applicable"
+* Blank fields
+* "% VENDOR ID%" (Granite SD, 2019-09-11)
+
+
+'"DONT USE"" use #20425"
+"-USE VENDOR #2641"
+***USE VENDOR #22058***
+****DO NOT USE** USE 23559
+***DO NOT USE*** SEE V011273 SANDYS FINE FOD
+.
+....
+???
+  _____________________
+____________________________________
+Like "#N/A"
+Names surrounded with ""
+Names preceeded by "~"
+Number/numbers
+* 0
+* 1.24.18
+* 105126
+numbers and names (some of which make sense and some of which do not)
+* 100594 TODD WOFFINDEN 65938
+* 102152 RMFMA 62287
+* 102164 ICC 63124
+Vendor names containing information that appears like it belongs in an org, cat, or fund column:
+  * "0030 Athletics"
+* "0050 General"
+* "02 sales tax bonds"
+* "10.6Elem750"
+* "10.6Misc3975"
+
+Non-sensicals that include a date, transaction number (?), and a city
+* "01/04 509655EX 665646 11.8 BLUFF"
+* "01/11 Workers Compensation accrual"
+
+
+```{r}
+grady_augmented_dictionary <- 
+  qdapDictionaries::GradyAugmented %>% 
+  as_tibble()
+
+colnames(grady_augmented_dictionary) <- "name"
+
+mark_kantrowitzs_names_dictionary <- 
+  read_tsv("http://www.cs.cmu.edu/afs/cs/project/ai-repository/ai/areas/nlp/corpora/names/other/names.txt", 
+           col_names = "name") %>% 
+  as_tibble()
+
+dictionary <- 
+  grady_augmented_dictionary %>% 
+  bind_rows(mark_kantrowitzs_names_dictionary)
+```
+
+After excluding local governments that are inactive or dissolved, I searched for names that are blank, 
+contain only numbers, or contain text like "Not Available", "Not Provided," "Unavailable", "NA," and "N/A." I found the following:
+  
+(NO "NOT APPLICABLE"s? Really?)
+  
+* Blank fields
+* Fields containing some variation of "Not Provided"
+* Fields containing some variation of "Not Available" (e.g., "N/A")
+* Fields containing numbers unaccompanied by a name
+* Fields containing incoherent or unhelpful names (e.g., a mixture of numbers and letters).
+
+```{r, echo=FALSE}
+exp_invalid_names <- 
+  exp_names %>% 
+  filter(vendor_name == "" |
+           str_detect(vendor_name, regex("^not a", ignore_case = TRUE)) |
+           str_detect(vendor_name, regex("^not pro", ignore_case = TRUE)) |
+           str_detect(vendor_name, "^[0-9]+") |
+           str_detect(vendor_name, regex("vendor id", ignore_case = TRUE)))
+
+rev_invalid_names <- 
+  rev_names %>% 
+  filter(vendor_name == "" |
+           str_detect(vendor_name, regex("^not a", ignore_case = TRUE)) |
+           str_detect(vendor_name, regex("^not pro", ignore_case = TRUE)) |
+           str_detect(vendor_name, "^[0-9]+"))
+
+exp_number_of_entities_with_invalid_names <- 
+  exp_invalid_names %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+rev_number_of_entities_with_invalid_names <- 
+  rev_invalid_names %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+exp_number_of_entities_with_not_provided <- 
+  exp_invalid_names %>% 
+  filter(str_detect(vendor_name, regex("^not pro", ignore_case = TRUE))) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+rev_number_of_entities_with_not_provided <- 
+  rev_invalid_names %>% 
+  filter(str_detect(vendor_name, regex("^not pro", ignore_case = TRUE))) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+exp_number_of_entities_with_blank_or_number <- 
+  exp_invalid_names %>% 
+  filter(vendor_name == "" |
+           str_detect(vendor_name, "^[0-9]+")) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+rev_number_of_entities_with_blank_or_number <- 
+  rev_invalid_names %>% 
+  filter(vendor_name == "" |
+           str_detect(vendor_name, "^[0-9]+")) %>% 
+  distinct(entity_name) %>% 
+  count() %>% 
+  as.numeric()
+
+exp_number_of_distinct_invalid_names <- 
+  exp_invalid_names %>% 
+  distinct(vendor_name) %>% 
+  count() %>% 
+  as.numeric()
+
+rev_number_of_distinct_invalid_names <- 
+  rev_invalid_names %>% 
+  distinct(vendor_name) %>% 
+  count() %>% 
+  as.numeric()
+```
+
+For expenses, there are:
+  
+  * `r exp_number_of_entities_with_invalid_names` vendor names that may be invalid.
+* `r exp_number_of_distinct_invalid_names` unique vendor names.
+* `r exp_number_of_entities_with_invalid_names` local governments with vendor names that may be invalid.
++ `r exp_number_of_entities_with_not_provided` local governments report at least one "Not Provided" vendor name.
++ `r exp_number_of_entities_with_blank_or_number` local governments report at least one blank name or a name including a number.
+
+For revenues, there are:
+  
+  * `r rev_number_of_entities_with_invalid_names` vendor names that may be invalid.
+* `r rev_number_of_distinct_invalid_names` unique vendor names.
+* `r rev_number_of_entities_with_invalid_names` local governments with vendor names that may be invalid.
++ `r rev_number_of_entities_with_not_provided` local governments report at least one "Not Provided" vendor name.
++ `r rev_number_of_entities_with_blank_or_number` local governments report at least one blank name or a name including a number. 
+
+```{r}
+rm(exp_number_of_distinct_invalid_names,
+   exp_number_of_entities_with_blank_or_number,
+   exp_number_of_entities_with_invalid_names,
+   exp_number_of_entities_with_not_provided,
+   rev_number_of_distinct_invalid_names,
+   rev_number_of_entities_with_blank_or_number,
+   rev_number_of_entities_with_invalid_names,
+   rev_number_of_entities_with_not_provided)
+```
+
+**Expense Invalid Name Totals, by Entity**
+  
+  ```{r}
+exp_total_vendors <- 
+  exp_names %>% 
+  group_by(entity_name) %>% 
+  summarise(total_vendors = n())
+
+exp_entity_totals <- 
+  exp_invalid_names %>% 
+  group_by(entity_name) %>% 
+  summarise(invalid_vendor_count = n()) %>% 
+  left_join(exp_total_vendors, by = "entity_name") %>% 
+  mutate(percent_invalid = (invalid_vendor_count / total_vendors) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, percent_invalid, invalid_vendor_count, total_vendors) %>% 
+  arrange(desc(percent_invalid), desc(invalid_vendor_count)) %>% 
+  print()
+```
+
+**Revenue Invalid Name Totals, by Entity**
+  
+  ```{r}
+rev_total_vendors <- 
+  rev_names %>% 
+  group_by(entity_name) %>% 
+  summarise(total_vendors = n())
+
+rev_entity_totals <- 
+  rev_invalid_names %>% 
+  group_by(entity_name) %>% 
+  summarise(invalid_vendor_count = n()) %>% 
+  left_join(rev_total_vendors, by = "entity_name") %>% 
+  mutate(percent_invalid = (invalid_vendor_count / total_vendors) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, percent_invalid, invalid_vendor_count, total_vendors) %>% 
+  arrange(desc(percent_invalid), desc(invalid_vendor_count)) %>% 
+  print()
+```
+
+**Expense Invalid Name Totals, by Entity, by Invalid Name** 
+  
+  ```{r, echo=FALSE}
+exp_by_name_totals <- 
+  exp_invalid_names %>% 
+  group_by(entity_name, vendor_name) %>% 
+  summarise(name_count = n()) %>% 
+  left_join(exp_total_vendors, by = "entity_name") %>% 
+  mutate(percent_invalid = (name_count / total_vendors) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, vendor_name, percent_invalid, name_count, total_vendors) %>%
+  arrange(desc(percent_invalid, desc(name_count))) %>% 
+  print()
+```
+
+**Revenue Invalid Name Totals, by Entity, by Invalid Name** 
+  
+  ```{r, echo=FALSE}
+rev_by_name_totals <- 
+  rev_invalid_names %>% 
+  group_by(entity_name, vendor_name) %>% 
+  summarise(name_count = n()) %>% 
+  left_join(rev_total_vendors, by = "entity_name") %>% 
+  mutate(percent_invalid = (name_count / total_vendors) * 100) %>% 
+  mutate(percent_invalid = round(percent_invalid, digits = 1)) %>% 
+  select(entity_name, vendor_name, percent_invalid, name_count, total_vendors) %>%
+  arrange(desc(percent_invalid, desc(name_count))) %>% 
+  print()
 ```
 
 # DBMS Disconnection
