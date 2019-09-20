@@ -286,7 +286,7 @@ reports__c <-
     -- We send a 10-day notice to entities with missing budgets. As the Office
     -- Specialist (Brooke) is responsible for creating that report, I won't
     -- query those entities in this program.
-    AND r.Name NOT IN ('Approved Budget', 'Ammended Budget')
+    AND r.Name NOT IN ('Approved Budget', 'Amended Budget')
     AND r.Entity_Type__c IN (
       SELECT Name
       FROM RecordType
