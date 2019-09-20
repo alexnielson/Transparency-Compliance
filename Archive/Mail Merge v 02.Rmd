@@ -259,6 +259,11 @@ if (exists("file_path")) rm(file_path)
 
 ## Salesforce - Missing OSA Reports
 
+Notes:
+
+* We send 10-day notices for missing budgets, and those are handled by the Office Specialist (currently, Brooke), so I don't query those reports here.
+* Originally, the query below to the `Reports__c` Table included `AND Required__c = TRUE`. Brooke told me that there are instances when a report should be required, but neither Salesforce nor the person reviewing the report notices the "Required" checkbox isn't selected. So, I decided to list the report types that we care about. This means that this list may need to be reviewed and compared to the list in Salesforce, to verify that any new report types are captured here.
+
 ```{r}
 report_year <- 
   dbGetQuery(
@@ -275,18 +280,24 @@ reports__c <-
     odbc_salesforce,
     "SELECT
       a.Name AS entity_name, 
-      r.Name as report_name, 
+      Report_Type__c AS missing_report,
       Report_Status__c
     FROM Reports__c AS r
     LEFT JOIN Account AS a
     ON r.Account__c = a.Id
     WHERE r.IsDeleted = FALSE
     AND Delinquent__c = TRUE
-    AND Required__c = TRUE
-    -- We send a 10-day notice to entities with missing budgets. As the Office
-    -- Specialist (Brooke) is responsible for creating that report, I won't
-    -- query those entities in this program.
-    AND r.Name NOT IN ('Approved Budget', 'Amended Budget')
+    AND r.Report_Type__c IN (
+      'Agreed-Upon Procedures',
+      'Agreed Upon Procedures',
+      'AUP',
+      'Financial Certification',
+      'Financial Report',
+      'Impact Fee',
+      'Impact Fee Report',
+      'Impact Fees',
+      'Self-Evaluation Form',
+      'Self Evaluation Form')
     AND r.Entity_Type__c IN (
       SELECT Name
       FROM RecordType
@@ -296,12 +307,17 @@ reports__c <-
         'Institution of Higher Education', 'Interlocal', 
         'Local and Special Service District', 'Mental Health', 'Non Profits', 
         'Redevelopment Agency/Project Area', 'School District or Charter School',
-        'Town'))")
+        'Town'))
+    AND a.Entity_Status__c IN (
+      'Current',
+      'Delinquent',
+      'Suspended',
+      'On hold')")
 
 missing_reports_osa <- 
   reports__c %>% 
   left_join(report_year, by = c("Report_Status__c" = "Id")) %>% 
-  unite(missing_report, report_year, report_name, sep = " ") %>% 
+  unite(missing_report, report_year, missing_report, sep = " ") %>% 
   select(-Report_Status__c)
 
 missing_reports_osa <- 
