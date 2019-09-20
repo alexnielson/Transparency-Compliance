@@ -1,7 +1,7 @@
 ---
 title: "Batch Compliance Report"
 author: "Michael Jensen"
-date: "July 2019"
+date: "September 2019"
 output: html_notebook
 ---
 # Program Description
@@ -72,6 +72,7 @@ library(magrittr)
 library(odbc)
 library(readxl)
 library(splitstackshape)
+library(stringr)
 library(tidyverse)
 
 odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
@@ -204,7 +205,7 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     tibble(
       batch_id            = batch_id,
       any_blank_or_na     = NA,
-      not_19_char         = NA,
+      incorrect_format    = NA,
       invalid_fund        = NA,
       invalid_funct       = NA,
       invalid_account_exp = NA,
@@ -226,19 +227,42 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     
   }
   
-  if (any(nchar(ucoa_reported$account_number) != 19)) {
+  if (any(
+    !str_detect(
+      ucoa_reported$account_number,
+      regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$")))) {
     
-    invalid_ucoa_info$not_19_char <- 
+    invalid_ucoa_info$incorrect_format <- 
       ucoa_reported %>% 
-      filter(nchar(account_number) != 19) %>% 
+      filter(
+        !str_detect(
+          ucoa_reported$account_number,
+          regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$"))) %>% 
       .[["account_number"]] %>% 
       paste(collapse = ", ") %>% 
       sort()
     
     ucoa_reported <- 
       ucoa_reported %>% 
-      filter(nchar(account_number) == 19)
+      filter(
+        str_detect(
+          ucoa_reported$account_number,
+          regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$")))
   }
+  
+  # if (any(nchar(ucoa_reported$account_number) != 19)) {
+  #   
+  #   invalid_ucoa_info$not_19_char <- 
+  #     ucoa_reported %>% 
+  #     filter(nchar(account_number) != 19) %>% 
+  #     .[["account_number"]] %>% 
+  #     paste(collapse = ", ") %>% 
+  #     sort()
+  #   
+  #   ucoa_reported <- 
+  #     ucoa_reported %>% 
+  #     filter(nchar(account_number) == 19)
+  # }
   
   fund <- 
     ucoa_reported %>% 
@@ -335,7 +359,7 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
         batch_id             = NA,
         fiscal_year          = NA,
         any_blank_or_na      = NA,
-        not_19_char          = NA,
+        incorrect_format     = NA,
         invalid_fund         = NA,
         invalid_funct        = NA,
         invalid_account_exp  = NA,
@@ -783,14 +807,14 @@ rm(entity_ids)
 ### Invalid 'posting_date` and `account_number`
 
 ```{r}
-# sf_data <- 
-#   sf_data %>% 
-#   filter(!is.na(t_id)) %>% 
-#   filter(t_id == 445 | # Highland City
-#          t_id == 299 | # Box Elder County
-#          t_id == 631 | # West Valley City
-#          t_id == 605 | # Tooele City
-#          t_id == 919)  # Stansbury Service Agency
+sf_data <-
+  sf_data %>%
+  filter(!is.na(t_id)) %>%
+  filter(t_id == 445 | # Highland City
+         t_id == 299 | # Box Elder County
+         t_id == 631 | # West Valley City
+         t_id == 605 | # Tooele City
+         t_id == 919)  # Stansbury Service Agency
 
 sf_data <- 
   sf_data %>% 
@@ -811,13 +835,13 @@ entity_batches_invalid <-
   entity_batches %>% 
   bind_rows() %>%
   select(entity_name, entity_id, batch_id, fiscal_year, 
-         any_blank_or_na, not_19_char, invalid_fund, invalid_funct,
+         any_blank_or_na, incorrect_format, invalid_fund, invalid_funct,
          invalid_account_exp, invalid_account_rev, invalid_date,
          username, uploaded_file, upload_date, transaction_type,
          begin_txn_date, end_txn_date, file_record_count, 
          file_total_amount) %>%
   filter(!is.na(any_blank_or_na)     |
-         !is.na(not_19_char)         |
+         !is.na(incorrect_format)         |
          !is.na(invalid_fund)        |
          !is.na(invalid_funct)       |
          !is.na(invalid_account_exp) |
@@ -834,7 +858,7 @@ report_summary <-
   select(entity_name = name, t_id, govt_type) %>% 
   mutate(
     any_blank_or_na            = NA,
-    number_not_19_char         = NA,
+    number_incorrect_format         = NA,
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
     number_invalid_account_exp = NA,
@@ -858,13 +882,13 @@ rm(i)
 
 for (i in 1:nrow(report_summary)) {
   
-  report_summary$number_not_19_char[[i]] <- 
+  report_summary$number_incorrect_format[[i]] <- 
     entity_batches_invalid %>% 
     filter(entity_name == report_summary$entity_name[[i]]) %>% 
-    select(not_19_char) %>% 
-    filter(!is.na(not_19_char)) %>% 
+    select(incorrect_format) %>% 
+    filter(!is.na(incorrect_format)) %>% 
     cSplit(
-      splitCols = "not_19_char", 
+      splitCols = "incorrect_format", 
       sep = ",", 
       direction = "long",
       type.convert = FALSE) %>%  
@@ -945,7 +969,7 @@ report_summary <-
   report_summary %>% 
   filter(!is.na(t_id)) %>% 
   filter(!is.na(any_blank_or_na)         |
-         number_not_19_char         != 0 |
+         number_incorrect_format         != 0 |
          number_invalid_fund        != 0 |
          number_invalid_function    != 0 |
          number_invalid_account_exp != 0 |
@@ -971,7 +995,7 @@ report_invalid_type %>%
     path = paste0(file_path, Sys.Date(), " Invalid Type Report.csv"),
     na = "")
 ```
-
+  
 ## Individual Files for Invalid Data
 
 *Note: As of 2019-07-30, Excel will round the numbers in the .csv files. Use Notepad or some other application instead when viewing the data.*
@@ -979,17 +1003,17 @@ report_invalid_type %>%
 Not 19-characters:
 
 ```{r}
-list_not_19_char <- list()
+list_incorrect_format <- list()
 
 for (i in 1:nrow(report_summary)) {
 
-  list_not_19_char[[i]] <- 
+  list_incorrect_format[[i]] <- 
     entity_batches_invalid %>% 
     filter(entity_name == report_summary$entity_name[[i]]) %>% 
-    select(not_19_char) %>% 
-    filter(!is.na(not_19_char)) %>% 
+    select(incorrect_format) %>% 
+    filter(!is.na(incorrect_format)) %>% 
     cSplit(
-      splitCols = "not_19_char", 
+      splitCols = "incorrect_format", 
       sep = ",", 
       direction = "long",
       type.convert = FALSE) %>%  
@@ -997,13 +1021,13 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_not_19_char) <- report_summary$entity_name
+names(list_incorrect_format) <- report_summary$entity_name
 
-for (i in names(list_not_19_char)) {
+for (i in names(list_incorrect_format)) {
   
-  if (nrow(list_not_19_char[[i]]) > 0) {
+  if (nrow(list_incorrect_format[[i]]) > 0) {
     
-   write_csv(list_not_19_char[[i]], paste0(i, "_not_19_chars.csv")) 
+   write_csv(list_incorrect_format[[i]], paste0(i, "_incorrect_formats.csv")) 
   }
 }
 rm(i)
