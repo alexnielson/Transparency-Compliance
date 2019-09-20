@@ -19,15 +19,8 @@ dsn_salesforce <- "Salesforce"
 
 # Select the appropriate notice type:
 notice_type <- 
-  "60_day_notice"
-  # "hold_or_suspend"
-
-# Load the Missing D&I Report, which comes from the Office of the State 
-# Treasurer (2019-08-12: The report came in three separate formats, and so 
-# Brook thought it would be easier for her to manually enter the missing 
-# reports than for me to wrangle the data and import it. Hopefully the State Treasurer's Office will figure out a better way to track the reports and send us
-# a single .csv file next time):
-
+  # "60_day_notice"
+  "hold_or_suspend"
 ```
 
 **Output(s)**
@@ -38,12 +31,17 @@ A .csv file containing a record for each entity that is missing a required repor
 * Entity CFO name
 * Entity CAO name
 * Entity address information
-* A field for each report an entity is missing
+* A field for each report the entity is missing
+
+**Comments**
+
+The Missing D & I Report comes from the Office of the State Treasurer. Though they have an instance of Salesforce, they don't actively use it (as of 2019-09-20). I can't, therefore, pull the missing reports from Salesforce and integrate them in the report I create here. Right now, our workflow consists of someone from the Treasurer's Office emailing us a list of entities that are missing reports, which we then manually enter into this report.
 
 # Libraries and Data Sources
 
 ```{r}
 library(data.table)
+library(janitor)
 library(magrittr)
 library(odbc)
 library(readxl)
@@ -52,6 +50,7 @@ library(svDialogs)
 library(tidyverse)
 
 odbc_salesforce <- dbConnect(odbc::odbc(), dsn_salesforce)
+
 rm(dsn_salesforce)
 ```
 
@@ -63,7 +62,7 @@ rm(dsn_salesforce)
   # Arguments:
   #  address_one (char): The portion of the complete address corresponding to 
   #    street_one.
-  #  address_two (char):The portion of the complete address corresponding to 
+  #  address_two (char): The portion of the complete address corresponding to 
   #    street_two.
   #  street_one (char): The default street address.
   #  street_two (char): The street address to compare against.
@@ -81,7 +80,7 @@ find_an_address <- function(street_one, street_two, address_one, address_two) {
   #  street_two (char): The street address to compare against.
   #  address_one (char): The portion of the complete address corresponding to 
   #    street_one.
-  #  address_two (char):The portion of the complete address corresponding to 
+  #  address_two (char): The portion of the complete address corresponding to 
   #    street_two.
   #
   # Returns:
@@ -97,7 +96,7 @@ find_an_address <- function(street_one, street_two, address_one, address_two) {
 
 # Execution
 
-## Contact Information
+## Salesforce - Contact Information
 
 ```{r}
 account <- 
@@ -174,7 +173,7 @@ cfo <-
       -- MailingStreet     AS cfo_street, 
       -- MailingCity       AS cfo_city, 
       -- MailingState      AS cfo_state, 
-     --  MailingPostalCode AS cfo_zipcode
+      -- MailingPostalCode AS cfo_zipcode
     FROM Contact AS c
     JOIN Account AS a
     ON c.AccountId = a.Id
@@ -202,17 +201,35 @@ cao <-
 # Check for entities with multiple CFOs:
 multiple_cfos <- 
   cfo[duplicated(cfo$entity_name), "entity_name"] %>% 
-  tibble()
+  tibble(has_multiple_cfos = .) %>% 
+  distinct(has_multiple_cfos) %>% 
+  arrange(has_multiple_cfos)
 
 multiple_caos <- 
   cao[duplicated(cao$entity_name), "entity_name"] %>% 
-  tibble()
+  tibble(has_multiple_caos = .) %>% 
+  distinct(has_multiple_caos) %>% 
+  arrange(has_multiple_caos)
 
 if (nrow(multiple_cfos) > 0 || nrow(multiple_caos) > 0) {
   
   dlg_message(
-  "Salesforce has at least one entity with multiple CFOs or CAOs.
-  This program will select only one of the names to send a notice to.")
+    "Salesforce has at least one entity with multiple CFOs or CAOs.
+    See report of entities with multiple cfos or caos.
+    This program will select one of the names to send a notice to.")
+  
+  file_path <-
+    "S:/Localgov/Database/Salesforce/Reports/"
+  
+  multiple_cfos %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Entities with Multiple CFOs.csv"),
+      na = "")
+  
+  multiple_caos %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Entities with Multiple CAOs.csv"),
+      na = "")
   
   cfo <- 
     cfo %>% 
@@ -230,17 +247,25 @@ contact_info <-
   left_join(cfo, by = "entity_name") %>% 
   left_join(cao, by = "entity_name") %>% 
   mutate(cfo_name = if_else(is.na(cfo_name), "CFO", cfo_name),
-         cao_name = if_else(is.na(cao_name), "CAO", cao_name))
+         cao_name = if_else(is.na(cao_name), "CAO", cao_name)) %>% 
+  select(entity_name, non_taxing_entity, cfo_name, cao_name, street, city, 
+         state, zip, record_type, sf_id) %>% 
+  arrange(entity_name)
+
+rm(cao, cfo, account)
+
+if (exists("file_path")) rm(file_path)
 ```
 
-## Missing Auditor Reports
+## Salesforce - Missing OSA Reports
 
 ```{r}
 report_year <- 
   dbGetQuery(
     odbc_salesforce,
     "SELECT 
-      Name as report_year, Id
+      Name AS report_year, 
+      Id
     FROM Report_Year__c
     WHERE IsDeleted = FALSE
     AND Delinquent_Reports__c > 0")
@@ -249,13 +274,18 @@ reports__c <-
   dbGetQuery(
     odbc_salesforce,
     "SELECT
-      a.Name AS entity_name, r.Name as report_name, Report_Status__c
+      a.Name AS entity_name, 
+      r.Name as report_name, 
+      Report_Status__c
     FROM Reports__c AS r
-    JOIN Account AS a
+    LEFT JOIN Account AS a
     ON r.Account__c = a.Id
     WHERE r.IsDeleted = FALSE
     AND Delinquent__c = TRUE
     AND Required__c = TRUE
+    -- We send a 10-day notice to entities with missing budgets. As the Office
+    -- Specialist (Brooke) is responsible for creating that report, I won't
+    -- query those entities in this program.
     AND r.Name NOT IN ('Approved Budget', 'Ammended Budget')
     AND r.Entity_Type__c IN (
       SELECT Name
@@ -277,6 +307,7 @@ missing_reports_osa <-
 missing_reports_osa <- 
   missing_reports_osa %>% 
   group_by(missing_report) %>% 
+  # See how many reports of each type are missing with summarize():
   summarize(n = n()) %>% 
   rowid_to_column("report_id") %>% 
   select(-n) %>% 
@@ -284,10 +315,16 @@ missing_reports_osa <-
 
 missing_reports_osa <- 
   missing_reports_osa %>% 
-  spread(report_id, missing_report) %>% 
-  group_by(entity_name) %>% 
-  summarize_all(funs(toString(na.omit(.)))) %>% 
-  mutate_all(funs(replace(., . == 0, NA)))
+  spread(report_id, missing_report)
+
+# Alex had the summarize_all() and mutate_all() functions piped as the last two
+# lines in the code above. I'm not sure why, as it looks like she removed the NA
+# values just to add them back in again with the next line of code. I'll keep it
+# for now, in case I discover why she did this.
+  #  %>% 
+  # group_by(entity_name) 
+  # summarize_all(funs(toString(na.omit(.)))) %>% 
+  # mutate_all(funs(replace(., . == 0, NA)))
 
 missing_reports_osa[missing_reports_osa == ""] <-  NA
 
@@ -309,26 +346,28 @@ rm(report_year, reports__c, missing_reports_osa2)
 for (j in 2:length(missing_reports_osa)) {
   
   colnames(missing_reports_osa)[j] <- paste("Auditor ", j - 1)
+  
 }
 rm(j)
+
+missing_reports_osa <- 
+  missing_reports_osa %>% 
+  remove_empty("cols")
+
+missing_reports_osa$entity_name <- 
+  as.character(missing_reports_osa$entity_name)
 ```
 
-```{r}
-# Difference between the Salesforce report and my report:
-# a <- 
-#   missing_reports_osa %>% distinct(entity_name)
-# 
-# b <- sf_auditor %>% distinct(`Entity Name`)
-# 
-# difference <- 
-#   a %>% 
-#   anti_join(b, by = c("entity_name" = "Entity Name"))
-```
+## Missing Transparency Reports
 
-## Transparency
+Note: 
+
+In the code below, I filter the data using `max(created_date)`. I expect this to work without problems in this program, as the trigger for running this Mail Merge program is running an initial or post-60-day grace period report. Meaning, every active and participating entity should have the same value for `created_date` prior to running the Mail Merge program.
+
+The filter condition would cause a problem in instances when any one entity has a more-recently created Compliance Report than the others (such as when happens when an entity is on hold, submits an upload to Transparent Utah, and then emails or calls us to request that we remove the hold status.) I don't expect we would run the Mail Merge program following these type of events, so I won't spend time trying to correct a problem that I don't expect to occur.
 
 ```{r}
-missing_transp <- 
+missing_reports_transp <- 
   dbGetQuery(
     odbc_salesforce,
     "SELECT 
@@ -349,28 +388,20 @@ missing_transp <-
         SELECT Id
         FROM RecordType
         WHERE Name IN (
-          'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
-          'County', 'District Health', 'Housing', 'Independent/Quasi State Entity',
-          'Institution of Higher Education', 'Interlocal', 
-          'Local and Special Service District', 'Mental Health', 'Non Profits', 
-          'Redevelopment Agency/Project Area', 'School District or Charter School',
-          'Town')))") %>% 
+          'AOG', 'City', 'Community Reinvestment Agency', 
+          'Conservation District', 'County', 'District Health', 'Housing',
+          'Independent/Quasi State Entity', 'Institution of Higher Education',
+          'Interlocal', 'Local and Special Service District', 'Mental Health',
+          'Non Profits', 'Redevelopment Agency/Project Area', 
+          'School District or Charter School', 'Town')))") %>% 
   mutate(created_date = as.Date(created_date)) %>% 
-  
-  # Filtering for the max created_date value may cause problems if any single entity
-  # or group of entities has a more recent compliance report than any others, as
-  # there will be entities missing from the filtered report. I want the max value
-  # for each entity...
-  # However, is this going to be an issue? Is it just something to be aware of?
   filter(created_date == max(created_date)) %>% 
-  select(-created_date)
-
-missing_transp <- 
+  select(-created_date) %>% 
   cSplit(
-    missing_transp, 
-    c("missing_exp", "missing_rev", "missing_w2"), 
-    sep = ", ", 
-    direction = "wide")
+    c("missing_exp", "missing_rev", "missing_w2"),
+    sep = ", ",
+    direction = "wide") %>%
+  remove_empty("cols")
 ```
 
 ## Join Reports
@@ -378,20 +409,45 @@ missing_transp <-
 ```{r}
 missing_reports <- 
   missing_reports_osa %>% 
-  full_join(missing_transp, by = "entity_name")
+  full_join(missing_reports_transp, by = "entity_name")
 
-report <-
-  missing_reports %>%
-  left_join(contact_info, by = c("entity_name"))
+report_send_notices <- 
+  contact_info %>% 
+  right_join(missing_reports, by = "entity_name")
 
-duplicate <- duplicated(report$entity_name)
+duplicate <- duplicated(report_send_notices$entity_name)
 
-report <- report[!duplicate, ]
+report_send_notices <- 
+  report_send_notices[!duplicate, ]
 
-```
+rm(missing_reports_osa, missing_reports_transp, missing_reports, 
+   contact_info, duplicate)
 
-```{r}
-write_csv(report, "missing_reports_aug_2019.csv")
+file_path <-
+  "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
+
+if (notice_type == "60_day_notice") {
+  
+  report_send_notices %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Mail Merge 60-day Notice.csv"),
+      na = ""
+    )
+  
+} else if (notice_type == "hold_or_suspend") {
+  
+  report_send_notices %>% 
+    filter(is.na(non_taxing_entity) | non_taxing_entity == FALSE) %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Mail Merge Hold Notice.csv"),
+      na = "")
+  
+  report_send_notices %>% 
+    filter(non_taxing_entity == TRUE) %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Mail Merge Suspend Notice.csv"),
+      na = "")
+}
 ```
 
 # DBMS Disconnection
