@@ -15,7 +15,7 @@ Compile and format the information needed to send the 60-day Warning postcards o
 **Input(s)**
 
 ```{r}
-dsn_salesforce <- "Salesforce"
+dsn_sf <- "Salesforce"
 
 # Select the appropriate notice type:
 notice_type <- 
@@ -49,9 +49,9 @@ library(splitstackshape)
 library(svDialogs)
 library(tidyverse)
 
-odbc_salesforce <- dbConnect(odbc::odbc(), dsn_salesforce)
+odbc_salesforce <- dbConnect(odbc::odbc(), dsn_sf)
 
-rm(dsn_salesforce)
+rm(dsn_sf)
 ```
 
 # Function Definitions
@@ -108,7 +108,8 @@ account <-
       r.Name                     AS record_type,
       Is_Solely_Fee_Assessing__c AS non_taxing_entity,
       ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode,
-      BillingStreet, BillingCity, BillingState, BillingPostalCode
+      BillingStreet, BillingCity, BillingState, BillingPostalCode,
+      Mailing_county__c AS mailing_county
     FROM Account AS a
     JOIN RecordType AS r
     ON a.RecordTypeId = r.Id
@@ -154,7 +155,7 @@ account <-
                       address_two = as.list(BillingPostalCode)),
                     find_an_address)) %>% 
   select(sf_id, entity_name, record_type, non_taxing_entity, 
-         street, city, state, zip)
+         street, city, state, zip, mailing_county)
 
 # CFOs and CAOs sometimes have an address that is different from the entity's
 # address. Though it would be more convenient for the CFO and CAO to receive the 
@@ -249,7 +250,7 @@ contact_info <-
   mutate(cfo_name = if_else(is.na(cfo_name), "CFO", cfo_name),
          cao_name = if_else(is.na(cao_name), "CAO", cao_name)) %>% 
   select(entity_name, non_taxing_entity, cfo_name, cao_name, street, city, 
-         state, zip, record_type, sf_id) %>% 
+         state, zip, record_type, sf_id, mailing_county) %>% 
   arrange(entity_name)
 
 rm(cao, cfo, account)
