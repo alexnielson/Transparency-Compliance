@@ -1038,9 +1038,9 @@ sf_local_gov <-
             'Suspended')
           AND Name NOT IN (
             'Intermountain Power Agency', 
+            'test city 2',
             'Utah Associated Municipal Power Systems', 
-            'Utah Municipal Power Agency',
-            'test city 2')
+            'Utah Municipal Power Agency')
           AND (
             Expense_Revenue_Start_Date__c <= DATE() OR 
             Expense_Revenue_Start_Date__c IS NULL)")) %>% 

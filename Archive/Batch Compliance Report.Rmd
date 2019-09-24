@@ -807,14 +807,14 @@ rm(entity_ids)
 ### Invalid 'posting_date` and `account_number`
 
 ```{r}
-sf_data <-
-  sf_data %>%
-  filter(!is.na(t_id)) %>%
-  filter(t_id == 445 | # Highland City
-         t_id == 299 | # Box Elder County
-         t_id == 631 | # West Valley City
-         t_id == 605 | # Tooele City
-         t_id == 919)  # Stansbury Service Agency
+# sf_data <-
+#   sf_data %>%
+#   filter(!is.na(t_id)) %>%
+#   filter(t_id == 445 | # Highland City
+#          t_id == 299 | # Box Elder County
+#          t_id == 631 | # West Valley City
+#          t_id == 605 | # Tooele City
+#          t_id == 919)  # Stansbury Service Agency
 
 sf_data <- 
   sf_data %>% 
@@ -1170,3 +1170,26 @@ rm(i)
 ```{r}
 dbDisconnect()
 ```
+# Workspace
+
+```{r}
+AISU had some funny entries in the amount field, with extra string characters.
+Can I find those?
+
+amount_field <- 
+  dbGetQuery(
+    odbc_aws,
+    "SELECT DISTINCT amount
+    FROM transaction
+    WHERE batch_id IN (
+      SELECT id
+      FROM batch
+      WHERE entity_id = 999)")
+
+entity_table <- 
+  dbGetQuery(
+    odbc_aws,
+    "select * from entity"
+  )
+```
+
