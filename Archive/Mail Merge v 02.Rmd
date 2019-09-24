@@ -123,7 +123,7 @@ account <-
         'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
         'County', 'District Health', 'Housing', 
         'Independent/Quasi State Entity', 'Interlocal', 
-        'Local and Special Service District', 'Mental Health', 
+        'Local and Special Service District', 'Mental Health', 'Non Profits',
         'Redevelopment Agency/Project Area', 
         'School District or Charter School', 'Town'))") %>% 
   mutate(street = pmap_chr(
