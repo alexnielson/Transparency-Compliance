@@ -8,17 +8,7 @@ output: html_notebook
 
 **Purpose**
 
-For non-archived Transparency data, identify violations of the following reporting requirements:
-
-* `fiscal_year` is reasonable (i.e., not an archived fiscal year and not a future fiscal year).
-* `type` is 1, 2, 3, or 7 for non-State of Utah entities.
-* `posting_date` is reasonable (i.e., the posting_date is within the interval of three months prior to the start of the `fiscal_year` value through six months following the end of the `fiscal_year` value).
-    + Note: Per a 2019-07 phone conversation with a local government CFO, notifying entities of unreasonable `posting_date` values will result in `posting_date` values that are less transparent and accountable. This is because a CFO is likely to change the incorrect `posting_date` value in the pipe-delimited file he or she uploaded to Transparency in order to become compliant, rather than correct the problem in the entity's accounting software and re-upload the data.
-* `account_number` is a code found in the OSA **Uniform Chart of Accounts**, which means:
-    + `account_number` is a 17-character string (19-character if the dashes are included in the count).
-    + `account_number` contains a valid 3-character fund code.
-    + `account_number` contains a valid 6-character function code.
-    + `account_number` contains a valid 8-character account code, where the account code is valid for the corresponding transaction type (e.g., a revenue transaction must not have an expense-related account code).
+In order to improve the reliability of the Transparent Utah data, identify entities with non-archived and non-compliant batches and indicate the problem(s) with each non-compliant batch.
 
 **Input(s)**
 
@@ -26,43 +16,29 @@ For non-archived Transparency data, identify violations of the following reporti
 * The DSN for the ODBC to Salesforce.
 
 ```{r}
-dsn_aws        <- "transpAWS"
-dsn_salesforce <- "Salesforce"
+dsn_aws <- "transpAWS"
+dsn_sf  <- "Salesforce"
 ```
 
 **Output(s)**
 
-* A report containing the unique `fiscal_year` values in the non-archived Transparency data (incorrect values would then trigger an investigation of the data).
+* Invalid FY Report: A .csv file containing entity and batch information for any entity with an unexpected `fiscal_year` value.
 
-* A report containing the unique `type` values in the non-archived Transparency data (incorrect values would then trigger an investigation of the data).
+* Invalid Type Report: A .csv file containing entity and batch information for any non-State of Utah entity with a `type` value not equal to `1`, `2`, `3`, or `7`.
 
-* A .csv file listing the entities with `posting_date` and `account_number` violations and a summary of each problem identified.
-  + Whether the entity has blank or NA `account_number` values
-  + The number of `account_number` values that are not the correct number of characters
-  + The number of invalid fund codes
-  + The number of invalid function codes
-  + The number of invalid expense account codes
-  + The number of invalid revenue account codes
+* Invalid Batch Report: A .csv file containing entity and batch information for any non-State of Utah entity with an invalid `posting_date` or `account_number` value, and fields indicating the specific problem(s).
 
-* For each entity with `posting_date` violations, a .csv file containing the following information:
-  + Entity Salesforce ID
-  + Entity name
-  + Batch ID
-  + File name of the invalid batch
-  + Upload date
-  + Upload username
-  + Transaction types in the batch
-  + Beginning transaction date
-  + End transaction date
-  + File record count
-  + File total amount
-  + The invalid dates
-  
-* For each entity with `account_number` violations, a .csv file containing the invalid data for each of the following violations:
-  + `account_number` values that are not the correct number of characters
-  + Invalid fund codes
-  + Invalid function codes used
-  + Invalid account codes used
+**Comments**
+
+A batch is compliant if it meets the following criteria:
+* `fiscal_year` is in `YYYY` format and makes sense (e.g., 0017, 2002, and 2099 are non-sensical values, as they refer to fiscal years for which Transparent Utah did not or does not yet exist).
+* `type` is `1`, `2`, `3`, or `7` for non-State of Utah entities.
+* `posting_date` makes sense, given the corresponding `fiscal_year` (e.g., `1940-04-25` isn't valid).
+* `account_number` meets the following requirements:
+  * A 19-character string in "###-######-########" format.
+  * Contains a valid 3-character fund code.
+  * Contains a valid 6-character function code.
+  * Contains a valid 8-character account code for the corresponding transaction type (i.e., a revenue transaction must not have an account code indicating an expense transaction).
 
 # Libraries and Data Source(s)
 
@@ -76,9 +52,9 @@ library(stringr)
 library(tidyverse)
 
 odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
-odbc_sf  <- dbConnect(odbc::odbc(), dsn_salesforce)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
 
-rm(dsn_aws, dsn_salesforce)
+rm(dsn_aws, df)
 
 download.file(
   "http://financialreports.utah.gov/chartofaccounts/ChartofAccountFull.xlsx",
@@ -104,7 +80,6 @@ download.file(
   #   ucoa_type (char): The UCoA component to check ("funct" = function,
   #     "exp" = expense, "rev" = revenue).
 ```
-
 
 ## check_posting_date
 
@@ -633,6 +608,7 @@ sf_data <-
               'District_Health',
               'Housing',
               'Independent_Quasi_State_Entity',
+              'Institute_of_Higher_Education',
               'Interlocal',
               'Local_and_Special_Service_District',
               'Mental_Health',
@@ -773,7 +749,7 @@ report_invalid_type <-
     FROM transaction
     JOIN batch
     ON batch.id = transaction.batch_id
-    WHERE transaction.type NOT IN (1, 2, 3)
+    WHERE transaction.type NOT IN (1, 2, 3, 7)
     AND batch.entity_id <> 1")
 
 if (nrow(report_invalid_type) > 0) {
@@ -807,14 +783,16 @@ rm(entity_ids)
 ### Invalid 'posting_date` and `account_number`
 
 ```{r}
-# sf_data <-
-#   sf_data %>%
-#   filter(!is.na(t_id)) %>%
-#   filter(t_id == 445 | # Highland City
-#          t_id == 299 | # Box Elder County
-#          t_id == 631 | # West Valley City
-#          t_id == 605 | # Tooele City
-#          t_id == 919)  # Stansbury Service Agency
+original <- sf_data
+
+sf_data <-
+  sf_data %>%
+  filter(!is.na(t_id)) %>%
+  filter(t_id == 445 | # Highland City
+         t_id == 299 | # Box Elder County
+         t_id == 631 | # West Valley City
+         t_id == 605 | # Tooele City
+         t_id == 919)  # Stansbury Service Agency
 
 sf_data <- 
   sf_data %>% 
@@ -982,7 +960,7 @@ file_path <-
 
 report_summary %>%
   write_csv(
-    path = paste0(file_path, Sys.Date(), " Batch Compliance Report.csv"),
+    path = paste0(file_path, Sys.Date(), " Invalid Batch Report.csv"),
     na = "")
 
 report_invalid_fy %>%
@@ -1170,26 +1148,3 @@ rm(i)
 ```{r}
 dbDisconnect()
 ```
-# Workspace
-
-```{r}
-AISU had some funny entries in the amount field, with extra string characters.
-Can I find those?
-
-amount_field <- 
-  dbGetQuery(
-    odbc_aws,
-    "SELECT DISTINCT amount
-    FROM transaction
-    WHERE batch_id IN (
-      SELECT id
-      FROM batch
-      WHERE entity_id = 999)")
-
-entity_table <- 
-  dbGetQuery(
-    odbc_aws,
-    "select * from entity"
-  )
-```
-
