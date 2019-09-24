@@ -103,20 +103,22 @@ account <-
   dbGetQuery(
     odbc_salesforce,
     "SELECT 
-      a.Id                       AS sf_id,
-      a.Name                     AS entity_name, 
-      r.Name                     AS record_type,
-      Is_Solely_Fee_Assessing__c AS non_taxing_entity,
-      ShippingStreet, ShippingCity, ShippingState, ShippingPostalCode,
-      BillingStreet, BillingCity, BillingState, BillingPostalCode,
-      Tax_Holding_County__c      AS tax_holding_county 
+      a.Id                         AS sf_id,
+      a.Name                       AS entity_name, 
+      r.Name                       AS record_type,
+      a.Is_Solely_Fee_Assessing__c AS non_taxing_entity,
+      a.ShippingStreet, a.ShippingCity, a.ShippingState, a.ShippingPostalCode,
+      a.BillingStreet, a.BillingCity, a.BillingState, a.BillingPostalCode,
+      a2.Name                      AS tax_holding_county 
     FROM Account AS a
-    JOIN RecordType AS r
+    LEFT JOIN RecordType AS r
     ON a.RecordTypeId = r.Id
-    WHERE IsDeleted = FALSE
-    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    LEFT JOIN Account AS a2
+    ON a.Tax_Holding_County__c = a2.Id
+    WHERE a.IsDeleted = FALSE
+    AND a.Entity_Status__c NOT IN ('Inactive', 'Dissolved')
     AND a.Name <> 'test city 2'
-    AND RecordTypeId IN (
+    AND a.RecordTypeId IN (
       SELECT id
       FROM RecordType
       WHERE Name IN (
