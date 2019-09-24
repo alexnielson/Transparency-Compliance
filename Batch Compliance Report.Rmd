@@ -31,6 +31,7 @@ dsn_sf  <- "Salesforce"
 **Comments**
 
 A batch is compliant if it meets the following criteria:
+
 * `fiscal_year` is in `YYYY` format and makes sense (e.g., 0017, 2002, and 2099 are non-sensical values, as they refer to fiscal years for which Transparent Utah did not or does not yet exist).
 * `type` is `1`, `2`, `3`, or `7` for non-State of Utah entities.
 * `posting_date` makes sense, given the corresponding `fiscal_year` (e.g., `1940-04-25` isn't valid).
@@ -39,6 +40,10 @@ A batch is compliant if it meets the following criteria:
   * Contains a valid 3-character fund code.
   * Contains a valid 6-character function code.
   * Contains a valid 8-character account code for the corresponding transaction type (i.e., a revenue transaction must not have an account code indicating an expense transaction).
+
+OSA Uniform Chart of Accounts:
+
+In the future, the OSA Uniform Chart of Accounts file will be updated. The update may change the format of the report, which means the code in the "UCoA" section of this report may need to be updated as well.
 
 # Libraries and Data Source(s)
 
@@ -622,6 +627,7 @@ sf_data <-
             'Suspended')
           AND Account.Name NOT IN (
             'Intermountain Power Agency',
+            'test city 2',
             'Utah Associated Municipal Power Systems',
             'Utah Municipal Power Agency')
           AND (
