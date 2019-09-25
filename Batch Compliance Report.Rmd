@@ -59,7 +59,7 @@ library(tidyverse)
 odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
 odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
 
-rm(dsn_aws, df)
+rm(dsn_aws, dsn_sf)
 
 download.file(
   "http://financialreports.utah.gov/chartofaccounts/ChartofAccountFull.xlsx",
@@ -102,7 +102,7 @@ check_posting_date <- function(batch_id, begin_fy) {
   #
   # Comments:
   #   We consider the posting_date value to be reasonable if it is within three
-  #   month prior to the start of the fiscal_year value through six months
+  #   months prior to the start of the fiscal_year value through six months
   #   after the end of the fiscal_year value. Three months ahead of the fiscal
   #   year accomodates accounts payable transactions that are billed late and 
   #   six months after the fiscal year matches the Transparency Board policy 
@@ -155,7 +155,8 @@ check_posting_date <- function(batch_id, begin_fy) {
 
 ```{r}
 check_ucoa <- function(batch_id, govt_type, ucoa) {
-  # Check whether a batch has valid Uniform Chart of Accounts codes.
+  # Check whether a batch has valid Uniform Chart of Accounts codes (applicable
+  # to only non-LEA and non-Higher Education entities).
   #
   # Arguments:
   #   batch_id (num): The batch's Transparency ID.
@@ -191,7 +192,8 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
       invalid_account_exp = NA,
       invalid_account_rev = NA)
   
-  if (govt_type == "School_District_or_Charter_School") {
+  if (govt_type == "School_District_or_Charter_School" ||
+      govt_type == "Institute_of_Higher_Education") {
     
     return(invalid_ucoa_info)
   }
@@ -204,7 +206,6 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
     ucoa_reported <- 
       ucoa_reported %>% 
       filter(account_number != "", !is.na(account_number))
-    
   }
   
   if (any(
