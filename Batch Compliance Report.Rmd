@@ -695,18 +695,16 @@ rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
 
 ## Reports
 
-### Invalid `fiscal_year` and `type`
+### Invalid FY and Type Reports
 
 ```{r}
 entity_ids <- 
   dbGetQuery(odbc_aws, "SELECT id, name FROM entity")
 
-# Check fiscal_year:
 report_invalid_fy <- 
   dbGetQuery(
     odbc_aws,
-    "
-    SELECT DISTINCT batch_id, fiscal_year, batch.entity_id
+    "SELECT DISTINCT batch_id, fiscal_year, batch.entity_id
     FROM transaction
     JOIN batch
     ON transaction.batch_id = batch.id
@@ -736,8 +734,6 @@ if (nrow(report_invalid_fy) > 0) {
            upload_username, upload_file)
 }
 
-# Check type (type 7 is technically valid, but so unreliable we've asked 
-# entities to stop reporting it, which is why I've excluded it here):
 report_invalid_type <- 
   dbGetQuery(
     odbc_aws,
@@ -780,7 +776,7 @@ if (nrow(report_invalid_type) > 0) {
 rm(entity_ids)
 ```
 
-### Invalid 'posting_date` and `account_number`
+### Invalid Batch Report
 
 ```{r}
 original <- sf_data
@@ -1146,5 +1142,5 @@ rm(i)
 # DBMS Disconnection
 
 ```{r}
-dbDisconnect()
+dbDisconnect(odbc_aws, odbc_sf)
 ```
