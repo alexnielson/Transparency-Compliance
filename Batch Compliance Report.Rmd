@@ -14,10 +14,15 @@ In order to improve the reliability of the Transparent Utah data, identify entit
 
 * The DSN for the ODBC to AWS.
 * The DSN for the ODBC to Salesforce.
+* The most-recently archived fiscal year (used in Invalid FY Report).
+* The most-recently valid fiscal year (used in Invalid FY Report).
 
 ```{r}
 dsn_aws <- "transpAWS"
 dsn_sf  <- "Salesforce"
+
+most_recent_archived_fy <- 2013
+latest_valid_fy         <- 2020
 ```
 
 **Output(s)**
