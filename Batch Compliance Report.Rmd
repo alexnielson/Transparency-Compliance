@@ -602,6 +602,7 @@ sf_data <-
               'AOG',
               'City',
               'Conservation_District',
+              'Community_Reinvestment_Agency',
               'County',
               'District_Health',
               'Housing',
