@@ -704,11 +704,14 @@ entity_ids <-
 report_invalid_fy <- 
   dbGetQuery(
     odbc_aws,
-    "SELECT DISTINCT batch_id, fiscal_year, batch.entity_id
-    FROM transaction
-    JOIN batch
-    ON transaction.batch_id = batch.id
-    WHERE fiscal_year NOT IN (2014, 2015, 2016, 2017, 2018, 2019, 2020)")
+    paste("
+      SELECT DISTINCT batch_id, fiscal_year, batch.entity_id
+      FROM transaction
+      JOIN batch
+      ON transaction.batch_id = batch.id
+      WHERE (
+        fiscal_year <= ", most_recent_archived_fy, " AND 
+        fiscal_year > ", latest_valid_fy, ")"))
 
 if (nrow(report_invalid_fy) > 0) {
   
@@ -778,7 +781,9 @@ rm(entity_ids)
 
 ### Invalid Batch Report
 
-```{r}
+Code for testing the Invalid Batch Report: 
+
+```{r, eval=FALSE}
 original <- sf_data
 
 sf_data <-
@@ -789,7 +794,11 @@ sf_data <-
          t_id == 631 | # West Valley City
          t_id == 605 | # Tooele City
          t_id == 919)  # Stansbury Service Agency
+```
 
+Create the Invalid Batch Report:
+
+```{r}
 sf_data <- 
   sf_data %>% 
   filter(!is.na(t_id))
@@ -805,7 +814,7 @@ entity_batches <-
 
 names(entity_batches) <- sf_data$name
 
-entity_batches_invalid <- 
+invalid_batches <- 
   entity_batches %>% 
   bind_rows() %>%
   select(entity_name, entity_id, batch_id, fiscal_year, 
@@ -815,50 +824,49 @@ entity_batches_invalid <-
          begin_txn_date, end_txn_date, file_record_count, 
          file_total_amount) %>%
   filter(!is.na(any_blank_or_na)     |
-         !is.na(incorrect_format)         |
+         !is.na(incorrect_format)    |
          !is.na(invalid_fund)        |
          !is.na(invalid_funct)       |
          !is.na(invalid_account_exp) |
          !is.na(invalid_account_rev) |
          invalid_date != "") %>% 
   arrange(entity_name, fiscal_year)
-```
 
-### Summary Report
+rm(entity_batches)
 
-```{r}
-report_summary <- 
+report_invalid_batch <- 
   sf_data %>% 
   select(entity_name = name, t_id, govt_type) %>% 
   mutate(
     any_blank_or_na            = NA,
-    number_incorrect_format         = NA,
+    number_incorrect_format    = NA,
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
     number_invalid_account_exp = NA,
-    number_invalid_account_rev = NA)
+    number_invalid_account_rev = NA,
+    number_invalid_date        = NA)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
   a <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(any_blank_or_na)
   
   if (any(!is.na(a))) {
     
-    report_summary$any_blank_or_na[[i]] <- "Yes"
+    report_invalid_batch$any_blank_or_na[[i]] <- "Yes"
     
   } 
   rm(a)
 }
 rm(i)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
-  report_summary$number_incorrect_format[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+  report_invalid_batch$number_incorrect_format[[i]] <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(incorrect_format) %>% 
     filter(!is.na(incorrect_format)) %>% 
     cSplit(
@@ -871,11 +879,11 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
-  report_summary$number_invalid_fund[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+  report_invalid_batch$number_invalid_fund[[i]] <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_fund) %>% 
     filter(!is.na(invalid_fund)) %>% 
     cSplit(
@@ -888,11 +896,11 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
-  report_summary$number_invalid_function[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+  report_invalid_batch$number_invalid_function[[i]] <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_funct) %>% 
     filter(!is.na(invalid_funct)) %>% 
     cSplit(
@@ -905,11 +913,11 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
-  report_summary$number_invalid_account_exp[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+  report_invalid_batch$number_invalid_account_exp[[i]] <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_account_exp) %>% 
     filter(!is.na(invalid_account_exp)) %>% 
     cSplit(
@@ -922,11 +930,11 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
   
-  report_summary$number_invalid_account_rev[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+  report_invalid_batch$number_invalid_account_rev[[i]] <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_account_rev) %>% 
     filter(!is.na(invalid_account_rev)) %>% 
     cSplit(
@@ -939,22 +947,46 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-report_summary <- 
-  report_summary %>% 
+for (i in 1:nrow(report_invalid_batch)) {
+  
+  a <- 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
+    select(invalid_date) %>% 
+    filter(invalid_date != "")
+  
+  if (length(a) > 0) {
+    
+    report_invalid_batch$number_invalid_date[[i]] <- 
+      a %>% 
+      cSplit(
+        splitCols = "invalid_date", 
+        sep = ",", 
+        direction = "long",
+        type.convert = FALSE) %>%  
+      nrow()
+  }
+  rm(a)
+}
+rm(i)
+
+report_invalid_batch <- 
+  report_invalid_batch %>% 
   filter(!is.na(t_id)) %>% 
   filter(!is.na(any_blank_or_na)         |
-         number_incorrect_format         != 0 |
+         number_incorrect_format    != 0 |
          number_invalid_fund        != 0 |
          number_invalid_function    != 0 |
          number_invalid_account_exp != 0 |
-         number_invalid_account_rev != 0)
+         number_invalid_account_rev != 0 |
+         number_invalid_date        != 0)
 ```
 
 ```{r}
 file_path <-
   "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
 
-report_summary %>%
+report_invalid_batch %>%
   write_csv(
     path = paste0(file_path, Sys.Date(), " Invalid Batch Report.csv"),
     na = "")
@@ -979,11 +1011,11 @@ Not 19-characters:
 ```{r}
 list_incorrect_format <- list()
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
 
   list_incorrect_format[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(incorrect_format) %>% 
     filter(!is.na(incorrect_format)) %>% 
     cSplit(
@@ -995,7 +1027,7 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_incorrect_format) <- report_summary$entity_name
+names(list_incorrect_format) <- report_invalid_batch$entity_name
 
 for (i in names(list_incorrect_format)) {
   
@@ -1012,11 +1044,11 @@ Number Invalid Fund:
 ```{r}
 list_invalid_fund <- list()
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
 
   list_invalid_fund[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_fund) %>% 
     filter(!is.na(invalid_fund)) %>% 
     cSplit(
@@ -1028,7 +1060,7 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_invalid_fund) <- report_summary$entity_name
+names(list_invalid_fund) <- report_invalid_batch$entity_name
 
 for (i in names(list_invalid_fund)) {
   
@@ -1045,11 +1077,11 @@ Number Invalid Function:
 ```{r}
 list_invalid_funct <- list()
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
 
   list_invalid_funct[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_funct) %>% 
     filter(!is.na(invalid_funct)) %>% 
     cSplit(
@@ -1061,7 +1093,7 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_invalid_funct) <- report_summary$entity_name
+names(list_invalid_funct) <- report_invalid_batch$entity_name
 
 for (i in names(list_invalid_funct)) {
   
@@ -1078,11 +1110,11 @@ Number Invalid Account Exp:
 ```{r}
 list_invalid_account_exp <- list()
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
 
   list_invalid_account_exp[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_account_exp) %>% 
     filter(!is.na(invalid_account_exp)) %>% 
     cSplit(
@@ -1094,7 +1126,7 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_invalid_account_exp) <- report_summary$entity_name
+names(list_invalid_account_exp) <- report_invalid_batch$entity_name
 
 for (i in names(list_invalid_account_exp)) {
   
@@ -1111,11 +1143,11 @@ Number Invalid Account Rev:
 ```{r}
 list_invalid_account_rev <- list()
 
-for (i in 1:nrow(report_summary)) {
+for (i in 1:nrow(report_invalid_batch)) {
 
   list_invalid_account_rev[[i]] <- 
-    entity_batches_invalid %>% 
-    filter(entity_name == report_summary$entity_name[[i]]) %>% 
+    invalid_batches %>% 
+    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_account_rev) %>% 
     filter(!is.na(invalid_account_rev)) %>% 
     cSplit(
@@ -1127,7 +1159,7 @@ for (i in 1:nrow(report_summary)) {
 }
 rm(i)
 
-names(list_invalid_account_rev) <- report_summary$entity_name
+names(list_invalid_account_rev) <- report_invalid_batch$entity_name
 
 for (i in names(list_invalid_account_rev)) {
   
