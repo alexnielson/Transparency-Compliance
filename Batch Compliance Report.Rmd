@@ -330,9 +330,9 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
   
   batch_ids <- 
     query_batch_ids(t_id)
-  
-  # Why am I creating an empty row of data if there are no batch IDs?
-  # Did I do this because I can't skip those entities?
+
+  # Create a one-row tibble for entities without processed or processing 
+  # batches (otherwise, R will throw an error):
   if (length(batch_ids) == 0 || nrow(batch_ids) == 0) {
     
     report <-
@@ -409,8 +409,8 @@ query_batch_ids <- function(t_id) {
   # Comments:
   #   The 'DONTDELETE' batch status is a variation of 'PROCESSED.' DONTDELETE 
   #   indicates the data in the batch has been split among multiple transaction
-  #   tables, as the batch contains data from a fiscal year that has been 
-  #   archived.
+  #   tables (e.g., the batch contains data for archived and non-archived 
+  #   fiscal years.
   
   if (is.na(t_id)) {
     
@@ -510,6 +510,11 @@ query_type <- function(batch_id) {
   #
   # Value:
   #   Character.
+  #
+  # Comments:
+  #   As I've decided not to check type 3 (payroll) and type 7 (balance sheet)
+  #   data, the only types to check here are type 1 (expense) and type 2
+  #   (revenue).
   
   reported_types <- 
     dbGetQuery(
@@ -520,20 +525,7 @@ query_type <- function(batch_id) {
             WHERE batch_id = ", batch_id))
   
   reported_types$name <- 
-    if_else(
-      reported_types$type == 1,
-      "EXP",
-      if_else(
-        reported_types$type == 2,
-        "REV",
-        if_else(
-          reported_types$type == 3,
-          "PAYROLL",                  # I decided not to check PAYROLL data, so
-          if_else(                    # this won't appear in the report.
-            reported_types$type == 7,
-            "BS",                     # I decided not to check BS data, so this 
-                                      # won't appear in the report.
-            "OTHER"))))
+    if_else(reported_types$type == 1, "EXP", "REV")
   
   reported_types$name %>% 
     paste(collapse = ", ")
