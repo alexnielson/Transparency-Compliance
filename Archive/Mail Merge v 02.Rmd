@@ -109,7 +109,8 @@ account <-
       a.Is_Solely_Fee_Assessing__c AS non_taxing_entity,
       a.ShippingStreet, a.ShippingCity, a.ShippingState, a.ShippingPostalCode,
       a.BillingStreet, a.BillingCity, a.BillingState, a.BillingPostalCode,
-      a2.Name                      AS tax_holding_county 
+      a.Mailing_county__c          AS mailing_county,
+      a2.Name                      AS tax_holding_county
     FROM Account AS a
     LEFT JOIN RecordType AS r
     ON a.RecordTypeId = r.Id
@@ -157,7 +158,7 @@ account <-
                       address_two = as.list(BillingPostalCode)),
                     find_an_address)) %>% 
   select(sf_id, entity_name, record_type, non_taxing_entity, 
-         street, city, state, zip, tax_holding_county)
+         street, city, state, zip, mailing_county, tax_holding_county)
 
 # CFOs and CAOs sometimes have an address that is different from the entity's
 # address. Though it would be more convenient for the CFO and CAO to receive the 
@@ -252,7 +253,7 @@ contact_info <-
   mutate(cfo_name = if_else(is.na(cfo_name), "CFO", cfo_name),
          cao_name = if_else(is.na(cao_name), "CAO", cao_name)) %>% 
   select(entity_name, non_taxing_entity, cfo_name, cao_name, street, city, 
-         state, zip, record_type, sf_id, tax_holding_county) %>% 
+         state, zip, record_type, sf_id, mailing_county, tax_holding_county) %>% 
   arrange(entity_name)
 
 rm(cao, cfo, account)
