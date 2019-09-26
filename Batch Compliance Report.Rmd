@@ -40,11 +40,15 @@ A batch is compliant if it meets the following criteria:
 * `fiscal_year` is in `YYYY` format and makes sense (e.g., 0017, 2002, and 2099 are non-sensical values, as they refer to fiscal years for which Transparent Utah did not or does not yet exist).
 * `type` is `1`, `2`, `3`, or `7` for non-State of Utah entities.
 * `posting_date` makes sense, given the corresponding `fiscal_year` (e.g., `1940-04-25` isn't valid).
-* `account_number` meets the following requirements:
+* For non-LEA and non-Higher Ed entities, `account_number` meets the following requirements:
   * A 19-character string in "###-######-########" format.
   * Contains a valid 3-character fund code.
   * Contains a valid 6-character function code.
   * Contains a valid 8-character account code for the corresponding transaction type (i.e., a revenue transaction must not have an account code indicating an expense transaction).
+* For LEAs, `account_number` meets the following requirements:
+  * A 25-character string in "##-###-####-###-####-####" format.
+  * For expense transactions, `account_number` ends in "0000."
+  * For revenue transactinos, `account_number` does not end in "0000."
 
 OSA Uniform Chart of Accounts:
 
@@ -156,12 +160,11 @@ check_posting_date <- function(batch_id, begin_fy) {
 }
 ```
 
-## check_ucoa
+## check_account_number
 
 ```{r}
-check_ucoa <- function(batch_id, govt_type, ucoa) {
-  # Check whether a batch has valid Uniform Chart of Accounts codes (applicable
-  # to only non-LEA and non-Higher Education entities).
+check_account_number <- function(batch_id, govt_type, ucoa) {
+  # Check whether a batch has valid Chart of Accounts codes.
   #
   # Arguments:
   #   batch_id (num): The batch's Transparency ID.
@@ -176,6 +179,12 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
   #   Because type 3 (payroll) information is not required to have a UCoA code
   #   and we do not require entities to upload type 7 (balance sheet)
   #   information, I decided to exlude those transaction types here.
+  #
+  #   Higher Education entities have not been required to report a chart of 
+  #   accounts number (as of 2019-09-26), so the only purpose of including them 
+  #   here is to remind us that they aren't reporting that information.
+  #
+  #   LEAs use a chart of accounts defined by USBE.
   
   ucoa_reported <-
     dbGetQuery(
@@ -197,12 +206,6 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
       invalid_account_exp = NA,
       invalid_account_rev = NA)
   
-  if (govt_type == "School_District_or_Charter_School" ||
-      govt_type == "Institute_of_Higher_Education") {
-    
-    return(invalid_ucoa_info)
-  }
-  
   if (any(is.na(ucoa_reported$account_number)) || 
       any(ucoa_reported$account_number == "")) {
 
@@ -213,10 +216,81 @@ check_ucoa <- function(batch_id, govt_type, ucoa) {
       filter(account_number != "", !is.na(account_number))
   }
   
+  # Higher Education ###########################################################
+  
+  if (govt_type == "Institute_of_Higher_Education") {
+    
+    return(invalid_ucoa_info)
+  }
+  
+  # LEAs #######################################################################
+  if (govt_type == "School_District_or_Charter_School") {
+    
+    if (any(
+         !str_detect(
+           ucoa_reported$account_number,
+           regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$")))) {
+    
+    invalid_ucoa_info$incorrect_format <- 
+      ucoa_reported %>% 
+      filter(
+        !str_detect(
+          ucoa_reported$account_number,
+          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$"))) %>% 
+      .[["account_number"]] %>% 
+      paste(collapse = ", ") %>% 
+      sort()
+    
+    ucoa_reported <- 
+      ucoa_reported %>% 
+      filter(
+        str_detect(
+          ucoa_reported$account_number,
+          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$")))
+    }
+    
+    exp <- 
+      ucoa_reported %>% 
+      filter(type == 1) %>% 
+      .[["account_number"]]
+    
+    rev <- 
+      ucoa_reported %>% 
+      filter(type ==2) %>% 
+      .[["account_number"]]
+    
+    # "0000" is the only valid format for the last four digits in an LEA's
+    # chart of accounts.
+    if (length(exp) > 0 &&
+        !all(str_detect(exp, regex(".0000$")))) {
+      
+      invalid_ucoa_info$invalid_account_exp <- 
+        exp[!(str_detect(exp, regex(".0000$")))] %>% 
+        unique() %>%
+        paste(collapse = ", ") %>%
+        sort()
+    }
+    
+    # "0000" is not valid for the last four digits in an LEA's chart of
+    # accounts.
+    if (length(rev) > 0 &&
+        str_detect(rev, regex(".0000$"))) {
+      
+      invalid_ucoa_info$invalid_account_rev <- 
+        rev[(str_detect(rev, regex(".0000$")))] %>% 
+        unique() %>%
+        paste(collapse = ", ") %>%
+        sort()
+    }
+    
+    return(invalid_ucoa_info)
+  }
+
+  # Non-LEAs ###################################################################
   if (any(
-    !str_detect(
-      ucoa_reported$account_number,
-      regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$")))) {
+        !str_detect(
+          ucoa_reported$account_number,
+          regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$")))) {
     
     invalid_ucoa_info$incorrect_format <- 
       ucoa_reported %>% 
@@ -367,7 +441,7 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
   
   report <-
     batch_ids$batch_id %>% 
-    map(check_ucoa, govt_type, ucoa) %>% 
+    map(check_account_number, govt_type, ucoa) %>% 
     bind_rows()   %>% 
     mutate(invalid_date = map(batch_id, check_posting_date, begin_fy),
            entity_name  = !!name,
@@ -632,7 +706,8 @@ sf_data <-
           AND (
             Account.Expense_Revenue_Start_Date__c <= DATE() OR
             Account.Expense_Revenue_Start_Date__c IS NULL)")) %>%
-  as_tibble()
+  as_tibble() %>% 
+  filter(!is.na(t_id))
 ```
 
 ## UCoA
@@ -798,16 +873,18 @@ sf_data <-
          t_id == 299 | # Box Elder County
          t_id == 631 | # West Valley City
          t_id == 605 | # Tooele City
-         t_id == 919)  # Stansbury Service Agency
+         t_id == 919 | # Stansbury Service Agency
+         t_id == 205 | # Cache School District
+         t_id == 63  | # Kane School District
+         t_id == 151 | # CS Lewis Academy
+         t_id == 233 | # Freedom Academy
+         t_id == 7   | # Utah State University
+         t_id == 3)    # University of Utah  
 ```
 
 Create the Invalid Batch Report:
 
 ```{r}
-sf_data <- 
-  sf_data %>% 
-  filter(!is.na(t_id))
-
 entity_batches <- 
   list(
     t_id      = as.list(sf_data$t_id),
@@ -847,8 +924,8 @@ report_invalid_batch <-
     number_incorrect_format    = NA,
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
-    number_invalid_account_exp = NA,
-    number_invalid_account_rev = NA,
+    number_invalid_exp = NA,
+    number_invalid_rev = NA,
     number_invalid_date        = NA)
 
 for (i in 1:nrow(report_invalid_batch)) {
@@ -869,6 +946,12 @@ rm(i)
 
 for (i in 1:nrow(report_invalid_batch)) {
   
+  if (report_invalid_batch$govt_type[[i]] == "Institute_of_Higher_Education") {
+    
+    report_invalid_batch$number_incorrect_format[[i]] <- NA
+    
+  } else {
+  
   report_invalid_batch$number_incorrect_format[[i]] <- 
     invalid_batches %>% 
     filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
@@ -881,10 +964,19 @@ for (i in 1:nrow(report_invalid_batch)) {
       type.convert = FALSE) %>%  
     unique() %>% 
     nrow()
+  }
 }
 rm(i)
 
 for (i in 1:nrow(report_invalid_batch)) {
+  
+  if (report_invalid_batch$govt_type[[i]] %in%
+      c("School_District_or_Charter_School", 
+        "Institute_of_Higher_Education")) {
+    
+    report_invalid_batch$number_invalid_fund[[i]] <- NA
+    
+  } else {
   
   report_invalid_batch$number_invalid_fund[[i]] <- 
     invalid_batches %>% 
@@ -898,10 +990,19 @@ for (i in 1:nrow(report_invalid_batch)) {
       type.convert = FALSE) %>%  
     unique() %>% 
     nrow()
+  }
 }
 rm(i)
 
 for (i in 1:nrow(report_invalid_batch)) {
+  
+  if (report_invalid_batch$govt_type[[i]] %in%
+      c("School_District_or_Charter_School", 
+        "Institute_of_Higher_Education")) {
+    
+    report_invalid_batch$number_invalid_function[[i]] <- NA
+    
+  } else {
   
   report_invalid_batch$number_invalid_function[[i]] <- 
     invalid_batches %>% 
@@ -915,12 +1016,21 @@ for (i in 1:nrow(report_invalid_batch)) {
       type.convert = FALSE) %>%  
     unique() %>% 
     nrow()
+  }
 }
 rm(i)
 
 for (i in 1:nrow(report_invalid_batch)) {
   
-  report_invalid_batch$number_invalid_account_exp[[i]] <- 
+  if (report_invalid_batch$govt_type[[i]] %in%
+      c("School_District_or_Charter_School", 
+        "Institute_of_Higher_Education")) {
+    
+    report_invalid_batch$number_invalid_exp[[i]] <- NA
+    
+  } else {
+  
+  report_invalid_batch$number_invalid_exp[[i]] <- 
     invalid_batches %>% 
     filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
     select(invalid_account_exp) %>% 
@@ -932,23 +1042,33 @@ for (i in 1:nrow(report_invalid_batch)) {
       type.convert = FALSE) %>%  
     unique() %>% 
     nrow()
+  }
 }
 rm(i)
 
 for (i in 1:nrow(report_invalid_batch)) {
   
-  report_invalid_batch$number_invalid_account_rev[[i]] <- 
-    invalid_batches %>% 
-    filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
-    select(invalid_account_rev) %>% 
-    filter(!is.na(invalid_account_rev)) %>% 
-    cSplit(
-      splitCols = "invalid_account_rev", 
-      sep = ",", 
-      direction = "long",
-      type.convert = FALSE) %>%  
-    unique() %>% 
-    nrow()
+  if (report_invalid_batch$govt_type[[i]] %in%
+      c("School_District_or_Charter_School", 
+        "Institute_of_Higher_Education")) {
+    
+    report_invalid_batch$number_invalid_rev[[i]] <- NA
+    
+  } else {
+    
+    report_invalid_batch$number_invalid_rev[[i]] <- 
+      invalid_batches %>% 
+      filter(entity_name == report_invalid_batch$entity_name[[i]]) %>% 
+      select(invalid_account_rev) %>% 
+      filter(!is.na(invalid_account_rev)) %>% 
+      cSplit(
+        splitCols = "invalid_account_rev", 
+        sep = ",", 
+        direction = "long",
+        type.convert = FALSE) %>%  
+      unique() %>% 
+      nrow()
+  }
 }
 rm(i)
 
@@ -977,14 +1097,12 @@ rm(i)
 
 report_invalid_batch <- 
   report_invalid_batch %>% 
-  filter(!is.na(t_id)) %>% 
-  filter(!is.na(any_blank_or_na)         |
-         number_incorrect_format    != 0 |
-         number_invalid_fund        != 0 |
-         number_invalid_function    != 0 |
-         number_invalid_account_exp != 0 |
-         number_invalid_account_rev != 0 |
-         number_invalid_date        != 0)
+  filter(!is.na(any_blank_or_na)                                          |
+         (!is.na(number_incorrect_format) & number_incorrect_format != 0) |
+         (!is.na(number_invalid_fund)     & number_invalid_fund != 0)     |
+         (!is.na(number_invalid_function) & number_invalid_function != 0) |
+         (!is.na(number_invalid_exp)      & number_invalid_exp != 0)      |
+         (!is.na(number_invalid_rev)      & number_invalid_rev != 0))
 ```
 
 ```{r}
