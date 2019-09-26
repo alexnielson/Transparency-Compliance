@@ -46,7 +46,7 @@ A batch is compliant if it meets the following criteria:
   * Contains a valid 6-character function code.
   * Contains a valid 8-character account code for the corresponding transaction type (i.e., a revenue transaction must not have an account code indicating an expense transaction).
 * For LEAs, `account_number` meets the following requirements:
-  * A 25-character string in "##-###-####-###-####-####" format.
+  * A 25-character string in "##-###-####-####-###-####." format.
   * For expense transactions, `account_number` ends in "0000."
   * For revenue transactinos, `account_number` does not end in "0000."
 
@@ -229,14 +229,14 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
     if (any(
          !str_detect(
            ucoa_reported$account_number,
-           regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$")))) {
+           regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))) {
     
     invalid_ucoa_info$incorrect_format <- 
       ucoa_reported %>% 
       filter(
         !str_detect(
           ucoa_reported$account_number,
-          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$"))) %>% 
+          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$"))) %>% 
       .[["account_number"]] %>% 
       paste(collapse = ", ") %>% 
       sort()
@@ -246,7 +246,7 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
       filter(
         str_detect(
           ucoa_reported$account_number,
-          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}$")))
+          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
     }
     
     exp <- 
@@ -309,20 +309,6 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
           ucoa_reported$account_number,
           regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$")))
   }
-  
-  # if (any(nchar(ucoa_reported$account_number) != 19)) {
-  #   
-  #   invalid_ucoa_info$not_19_char <- 
-  #     ucoa_reported %>% 
-  #     filter(nchar(account_number) != 19) %>% 
-  #     .[["account_number"]] %>% 
-  #     paste(collapse = ", ") %>% 
-  #     sort()
-  #   
-  #   ucoa_reported <- 
-  #     ucoa_reported %>% 
-  #     filter(nchar(account_number) == 19)
-  # }
   
   fund <- 
     ucoa_reported %>% 
