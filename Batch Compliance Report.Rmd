@@ -453,7 +453,7 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
       entity_id           = sf_id,
       fiscal_year         = map(batch_id, query_fiscal_year)) %>%
     unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
-           username, uploaded_file, file_record_count, file_total_amount) %>% 
+           username, uploaded_file, file_record_count, file_total_amount) %>%
     unnest(fiscal_year)
 }
 ```
@@ -854,7 +854,6 @@ original <- sf_data
 
 sf_data <-
   sf_data %>%
-  filter(!is.na(t_id)) %>%
   filter(t_id == 445 | # Highland City
          t_id == 299 | # Box Elder County
          t_id == 631 | # West Valley City
@@ -866,6 +865,10 @@ sf_data <-
          t_id == 233 | # Freedom Academy
          t_id == 7   | # Utah State University
          t_id == 3)    # University of Utah  
+
+sf_data <- 
+  sf_data %>% 
+  filter(govt_type == "School_District_or_Charter_School")
 ```
 
 Create the Invalid Batch Report:
@@ -910,8 +913,8 @@ report_invalid_batch <-
     number_incorrect_format    = NA,
     number_invalid_fund        = NA,
     number_invalid_function    = NA,
-    number_invalid_exp = NA,
-    number_invalid_rev = NA,
+    number_invalid_exp         = NA,
+    number_invalid_rev         = NA,
     number_invalid_date        = NA)
 
 for (i in 1:nrow(report_invalid_batch)) {
@@ -1085,10 +1088,10 @@ report_invalid_batch <-
   report_invalid_batch %>% 
   filter(!is.na(any_blank_or_na)                                          |
          (!is.na(number_incorrect_format) & number_incorrect_format != 0) |
-         (!is.na(number_invalid_fund)     & number_invalid_fund != 0)     |
+         (!is.na(number_invalid_fund)     & number_invalid_fund     != 0) |
          (!is.na(number_invalid_function) & number_invalid_function != 0) |
-         (!is.na(number_invalid_exp)      & number_invalid_exp != 0)      |
-         (!is.na(number_invalid_rev)      & number_invalid_rev != 0))
+         (!is.na(number_invalid_exp)      & number_invalid_exp      != 0) |
+         (!is.na(number_invalid_rev)      & number_invalid_rev      != 0))
 ```
 
 ```{r}
