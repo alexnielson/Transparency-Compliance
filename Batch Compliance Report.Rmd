@@ -229,14 +229,14 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
     if (any(
          !str_detect(
            ucoa_reported$account_number,
-           regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))) {
+           regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))) {
     
     invalid_ucoa_info$incorrect_format <- 
       ucoa_reported %>% 
       filter(
         !str_detect(
           ucoa_reported$account_number,
-          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$"))) %>% 
+          regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$"))) %>% 
       .[["account_number"]] %>% 
       paste(collapse = ", ") %>% 
       sort()
@@ -246,7 +246,7 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
       filter(
         str_detect(
           ucoa_reported$account_number,
-          regex("^[:digit:]{2}-[:digit:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
+          regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
     }
     
     exp <- 
