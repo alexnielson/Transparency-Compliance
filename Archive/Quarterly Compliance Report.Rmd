@@ -374,7 +374,7 @@ mark_catch_next_cycle <- function(sf_id, date, sf_list) {
   #   "Delinquent - Not Enforced" following the 60-day grace period, and 0
   #   otherwise).
   # Comments:
-  #   Following the 60-day grace period, we release an entity from begin on hold
+  #   Following the 60-day grace period, we release an entity from being on hold
   #   if the entity has a batch with a status of UPLOADED. Entities may not, 
   #   however, upload a batch that contains all the missing reports. Previously,
   #   this meant that an entity flip-flopped between the "Okay" and "Hold" 
