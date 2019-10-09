@@ -340,10 +340,10 @@ missing_reports_osa <-
   missing_reports_osa %>% 
   spread(report_id, missing_report)
 
-# Alex had the summarize_all() and mutate_all() functions piped as the last two
-# lines in the code above. I'm not sure why, as it looks like she removed the NA
-# values just to add them back in again with the next line of code. I'll keep it
-# for now, in case I discover why she did this.
+# Alex had the group_by(), summarize_all(), and mutate_all() functions piped as 
+# the last two lines in the code above. I'm not sure why, as it looks like she 
+# removed the NA values just to add them back in again with the next line of 
+# code. I'll keep it for now, in case I discover why she did this.
   #  %>% 
   # group_by(entity_name) 
   # summarize_all(funs(toString(na.omit(.)))) %>% 
@@ -383,11 +383,13 @@ missing_reports_osa$entity_name <-
 
 ## Missing Transparency Reports
 
-Note: 
+Comments:
 
-In the code below, I filter the data using `max(created_date)`. I expect this to work without problems in this program, as the trigger for running this Mail Merge program is running an initial or post-60-day grace period report. Meaning, every active and participating entity should have the same value for `created_date` prior to running the Mail Merge program.
+* In the code below, I filter the data using `max(created_date)`. Doing so works in this program, because the trigger for running this program is an initial or post-60-day grace period Compliance Report uploaded to Salesforce. Thus, every active and participating entity in the Salesforce database will have the same value for `created_date`. 
 
-The filter condition would cause a problem in instances when any one entity has a more-recently created Compliance Report than the others (such as when happens when an entity is on hold, submits an upload to Transparent Utah, and then emails or calls us to request that we remove the hold status.) I don't expect we would run the Mail Merge program following these type of events, so I won't spend time trying to correct a problem that I don't expect to occur.
+Were, for whatever reason, any one entity to have a Compliance Report entry with a more recent `created_date` value than the others, the code below would return only that entity. I don't expect we would run this Mail Merge code without doing a Compliance Report for every entity, so I won't spend time addressing a problem that I don't expect to occur.
+
+* The code below relies on Salesforce correctly assigning a Transparency status to each entity's most recent Compliance Report entry (as made apparent on 2019-10-04, the 60th day of the compliance cycle and the date we ran this Mail Merge program to generate the Hold/Suspend Notice postcards). If Salesforce incorrectly assigns the Transparency status, then the first query below will select records with a status of `Delinquent_Enforced` or `Hold` from a previous Compliance Report entry. Though I'm expecting this problem will be solved soon, I've written a second query (commented out) that will allow us to work around the problem in Salesforce (it's not a perfect solution, but is good enough).
 
 ```{r}
 missing_reports_transp <- 
@@ -419,12 +421,52 @@ missing_reports_transp <-
           'School District or Charter School', 'Town')))") %>% 
   mutate(created_date = as.Date(created_date)) %>% 
   filter(created_date == max(created_date)) %>% 
-  select(-created_date) %>% 
+  # select(-created_date) %>% 
   cSplit(
     c("missing_exp", "missing_rev", "missing_w2"),
     sep = ", ",
     direction = "wide") %>%
   remove_empty("cols")
+
+# Use the query below when Salesforce incorrectly assigns the Transparency 
+# status:
+#
+# missing_reports_transp <-
+#   dbGetQuery(
+#     odbc_salesforce,
+#     "SELECT
+#       a.Name AS entity_name,
+#       t.Expenditure_Problem__c AS missing_exp,
+#       t.Revenue_Problem__c AS missing_rev,
+#       t.Wage_Problem__c AS missing_w2,
+#       t.CreatedDate AS created_date
+#     FROM Transparency_Reporting__c AS t
+#     JOIN Account AS a
+#     ON t.Account__c = a.Id
+#     WHERE t.IsDeleted = FALSE
+#     AND Temporary_Exemption__c <> 1
+#     AND Still_Missing_Noticed_Periods__c = 1
+#     AND Account__c IN (
+#       SELECT Id
+#       FROM Account
+#       WHERE RecordTypeId IN (
+#         SELECT Id
+#         FROM RecordType
+#         WHERE Name IN (
+#           'AOG', 'City', 'Community Reinvestment Agency',
+#           'Conservation District', 'County', 'District Health', 'Housing',
+#           'Independent/Quasi State Entity', 'Institution of Higher Education',
+#           'Interlocal', 'Local and Special Service District', 'Mental Health',
+#           'Non Profits', 'Redevelopment Agency/Project Area',
+#           'School District or Charter School', 'Town')))") %>%
+#   mutate(created_date = as.Date(created_date)) %>%
+#   filter(created_date == max(created_date)) %>%
+#   select(-created_date) %>%
+#   cSplit(
+#     c("missing_exp", "missing_rev", "missing_w2"),
+#     sep = ", ",
+#     direction = "wide") %>%
+#   remove_empty("cols")
 ```
 
 ## Join Reports
