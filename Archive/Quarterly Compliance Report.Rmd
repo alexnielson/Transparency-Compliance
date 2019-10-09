@@ -1631,7 +1631,7 @@ if (names(initial_report_date) == "current_cycle") {
 }
 
 if (names(initial_report_date) == "current_cycle" &&
-    today() >= (initial_report_date + days(60))) {
+    today() > (initial_report_date + days(60))) {
   
   report <-
     report %>%
