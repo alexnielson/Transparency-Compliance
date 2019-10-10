@@ -414,8 +414,7 @@ mark_still_missing <- function(sf_id, sf_list, current_report) {
   # Value:
   #   Numeric (1 if any of the currently missing reports are listed in the
   #   initial compliance report and the entity's most recent Transparency 
-  #   compliance status is "Hold," "On Hold," or "Delinquent - Enforced."
-  #   0 otherwise).
+  #   compliance status is "Hold" or "Delinquent - Enforced." 0 otherwise).
   
   initial_exp <- 
     split_missing_reports(sf_list$initial_report, sf_id, "missing_exp")
