@@ -1,0 +1,459 @@
+---
+title: "Granite School District Vendor Analysis"
+author: "Michael Jensen"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Research non-compliant vendor names at the district level.
+
+**Input(s)**
+
+```{r}
+dsn_aws <- "transpAWS"
+```
+
+**Output(s)**
+
+A .csv file containing
+
+
+# Libraries and Data Sources
+
+```{r}
+library(ggplot2)
+library(odbc)
+library(tidyverse)
+
+odbc_aws        <- dbConnect(odbc::odbc(), dsn_aws)
+rm(dsn_aws)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+
+```
+
+
+# Execution
+
+## Import and Analyze Granite SD's Transaction and Vendor Data
+
+In the LEA chart of accounts, the location code is the second element, composed of a three-character alphanumeric combination. District-level location codes are `011`-`099`, and Granite SD's district location code is `012`.
+
+```{r}
+t_id <- 57
+
+trxns <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT type, fiscal_year, amount, name AS vendor_name, account_number
+      FROM transaction
+      JOIN vendor
+      ON transaction.vendor_id = vendor.id
+      WHERE batch_id IN (
+        SELECT id
+        FROM batch
+        WHERE entity_id = ", t_id, ")"))
+
+trxns$fiscal_year <- 
+  trxns$fiscal_year %>% as.integer()
+
+trxns_clean <- 
+  trxns %>%
+  filter(
+    str_detect(
+      .$account_number,
+      regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
+
+trxns_clean_distinct <- 
+  substring(trxns_clean$account_number, 4, 6) %>% 
+  unique() %>% 
+  enframe(name = NULL)
+
+trxns_dirty <- 
+  trxns %>%
+  filter(
+    !str_detect(
+      .$account_number,
+      regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
+
+trxns_dirty_distinct <- 
+  substring(trxns_dirty$account_number, 4, 6) %>% 
+  unique() %>% 
+  enframe(name = NULL)
+
+trxns <- 
+  list(
+    trxns = trxns,
+    clean = trxns_clean,
+    dirty = trxns_dirty,
+    clean_distinct = trxns_clean_distinct,
+    dirty_distinct = trxns_dirty_distinct)
+
+rm(trxns_clean, trxns_clean_distinct, trxns_dirty, trxns_dirty_distinct)
+```
+
+Conclusions:
+
+* The location portion of `account_number` in `trxns_dirty` is valid, which means that I can include the transactions with dirty `account_number` values in my analysis.
+* Granite SD's district-level location code is `012`, but Granite also uses `099`. Given that `099` is a valid district-level location code, I'll include it in my analysis.
+
+## Import and Analyze Granite SD's District-level Transaction and Vendor Data
+
+```{r}
+trxns$trxns <- 
+  trxns$trxns %>% 
+  mutate(location_code = substring(.$account_number, 4, 6),
+         location_name = 
+           if_else(
+             location_code %in% c("012", "099"), "District", "School") %>% 
+           as_factor())
+
+trxns$annual_totals <- 
+  trxns$trxns %>% 
+  group_by(location_name, type, fiscal_year) %>% 
+  summarize(total = sum(amount))
+
+# ggplot(
+#   trxns_district$yearly_summary,
+#   aes(x = fiscal_year, y = total, col = as_factor(type))) +
+#   geom_line() +
+#   xlab("Fiscal Year") +
+#   ylab("Total Amount") +
+#   labs(color = "Transaction Type")
+```
+
+## Vendor Analysis for Expenses
+
+```{r}
+trxns$exp_vendors <- 
+  trxns$trxns %>% 
+  filter(type == 1) %>% 
+  distinct(location_name, vendor_name)
+
+
+```
+
+```{r}
+exp_vendors_na <- 
+  trxns$trxns %>% 
+  filter(type == 1) %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not Applicable", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_applicable_count = n())
+
+exp_vendors_np <- 
+  trxns$trxns %>% 
+  filter(type == 1) %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not Provi", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_provided_count = n())
+
+exp_vendors_vendor_id <- 
+  trxns$trxns %>% 
+  filter(type == 1) %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^SCH Vendor ID", ignore_case = TRUE)) |
+    str_detect(
+      .$vendor_name, 
+      regex("^Vendor ID", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(vendor_id_count = n())
+
+exp_vendors_summary <- 
+  trxns$trxns %>% 
+  filter(type == 1) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(record_count = n()) %>% 
+  full_join(exp_vendors_na, by = "fiscal_year") %>% 
+  full_join(exp_vendors_np, by = "fiscal_year") %>% 
+  full_join(exp_vendors_vendor_id, by = "fiscal_year") %>% 
+  mutate(pct_na = 
+           (not_applicable_count / record_count) %>% 
+           round(digits = 2) * 100,
+         pct_np = 
+           (not_provided_count / record_count) %>% 
+           round(digits = 2) * 100,
+         pct_vendor_id = 
+           (vendor_id_count / record_count) %>% 
+           round(digits = 2) * 100)
+```
+
+```{r}
+exp_vendors_na_district <- 
+  trxns$trxns %>% 
+  filter(type == 1 & location_name == "District") %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not Applicable", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_applicable_count = n())
+
+exp_vendors_np_district <- 
+  trxns$trxns %>% 
+  filter(type == 1 & location_name == "District") %>%  
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not Provi", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_provided_count = n())
+
+exp_vendors_vendor_id_district <- 
+  trxns$trxns %>% 
+  filter(type == 1 & location_name == "District") %>%  
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^SCH Vendor ID", ignore_case = TRUE)) |
+    str_detect(
+      .$vendor_name, 
+      regex("^Vendor ID", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(vendor_id_count = n())
+
+exp_vendors_summary_district <- 
+  trxns$trxns %>% 
+  filter(type == 1 & location_name == "District") %>%  
+  group_by(fiscal_year) %>% 
+  summarize(record_count = n()) %>% 
+  full_join(exp_vendors_na_district, by = "fiscal_year") %>% 
+  full_join(exp_vendors_np_district, by = "fiscal_year") %>% 
+  full_join(exp_vendors_vendor_id_district, by = "fiscal_year") %>% 
+  mutate(pct_na = 
+           (not_applicable_count / record_count) %>% 
+           round(digits = 2) * 100,
+         pct_np = 
+           (not_provided_count / record_count) %>% 
+           round(digits = 2) * 100,
+         pct_vendor_id = 
+           (vendor_id_count / record_count) %>% 
+           round(digits = 2) * 100)
+
+ggplot(
+  exp_vendors_summary_district %>% select(fiscal_year, pct_na, pct_vendor_id),
+  aes(x = fiscal_year, y = pct_na)) +
+  geom_col()
+
+district_summary <- 
+  exp_vendors_summary_district %>% 
+  select(fiscal_year, pct_na, pct_np, pct_vendor_id) %>% 
+  gather(key = "vendor_name", value = "percentage", -fiscal_year)
+
+district_summary_plot <- 
+  ggplot(district_summary,
+       aes(x = fiscal_year, y = percentage, fill = vendor_name)) +
+  geom_col()
+
+district_summary_plot
+```
+
+
+Expense information contains "Not Applicable," "Not Provided," "SCH Vendor ID: ######," and "Vendor ID: ######."
+
+```{r}
+
+  
+library(ggplot2)
+
+ggplot(type_1_total_trxns,
+       aes(x = fiscal_year, y = record_count)) +
+  geom_point() +
+  geom_smooth(
+    type_1_total_trxns,
+    aes(x = fiscal_year, y = not_applicable_count))
+
+
+```
+
+## Payroll Analysis
+
+```{r}
+
+trxns_district$type_3 <- 
+  trxns_district$trxns %>% filter(type == 3)
+
+type_3_vendors <- 
+  trxns %>% 
+  filter(type == 3) %>% 
+  distinct(vendor_name)
+
+type_3_locations <- 
+  substring(trxns$account_number, 4, 6) %>% 
+  unique() %>% 
+  enframe(name = NULL)
+```
+
+For district and school-level information, I didn't see any instances of "Not Applicable," "Not Provided," "SCH Vendor ID: ######," or "Vendor ID: ######" reported as an employee name. Vendor names reported for payroll information look good.
+
+```{r, eval=FALSE}
+rm(type_3_locations, type_3_vendors)
+```
+
+## Revenue Analysis
+
+```{r}
+
+trxns_district$type_2 <- 
+  trxns_district$trxns %>% filter(type == 2)
+
+
+type_2_locations <- 
+  trxns %>% 
+  filter(type == 2) %>% 
+  substring(trxns$account_number, 4, 6) %>% 
+  unique() %>% 
+  enframe(name = NULL)
+
+type_2_vendors <- 
+  trxns %>% 
+  filter(type == 2) %>% 
+  distinct(vendor_name)
+
+type_2_vendors_distinct   <-
+  type_2_vendors %>% 
+  distinct(vendor_name) %>% 
+  nrow() %>% as.double()
+  
+type_2_vendors_na <- 
+  trxns %>% 
+  filter(type == 2) %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not A", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_applicable_count = n())
+
+type_2_vendors_np <- 
+  trxns %>% 
+  filter(type == 2) %>% 
+  filter(
+    str_detect(
+      .$vendor_name, 
+      regex("^Not P", ignore_case = TRUE))) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(not_provided_count = n())
+
+type_2_total_trxns <- 
+  trxns %>% 
+  filter(type == 2) %>% 
+  group_by(fiscal_year) %>% 
+  summarize(record_count = n()) %>% 
+  full_join(type_2_vendors_na, by = "fiscal_year") %>% 
+  full_join(type_2_vendors_np, by = "fiscal_year") %>% 
+  mutate(pct_na = 
+           (not_applicable_count / record_count) %>% 
+           round(digits = 2) * 100,
+         pct_np = 
+           (not_provided_count / record_count) %>% 
+           round(digits = 2) * 100)
+
+library(ggplot2)
+
+type_2_total_trxns$fiscal_year <- 
+  as.integer(type_2_total_trxns$fiscal_year) 
+
+ggplot(type_2_total_trxns, 
+       aes(x = fiscal_year, 
+           y = record_count)) +
+  geom_line()
+```
+
+For district and school-level information, I didn't see any instances of "SCH Vendor ID: ######," or "Vendor ID: ######" reported as a vendor name.
+
+## To review
+
+```{r}
+ %>% 
+  filter(substring(.$account_number, 4, 6) %in% c('012', '099'))
+  
+coa <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT DISTINCT account_number
+      FROM transaction
+      WHERE batch_id IN (
+        SELECT id
+        FROM batch
+        WHERE entity_id = ", 57, ")"))
+
+coa_complete <- 
+  coa %>% 
+  filter(
+    str_detect(
+      coa$account_number,
+      regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
+
+coa_location <- 
+  coa_complete %>% 
+  .[["account_number"]] %>% 
+  substring(4, 6) %>% 
+  unique() %>% 
+  tibble::enframe(name = NULL)
+
+vendors <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT name, id AS vendor_id
+      FROM vendor
+      WHERE entity_id = ", t_id))
+
+
+
+distinct_vendors <- 
+  district_vendors %>% 
+  distinct(name)
+
+na <- 
+  district_vendors %>% 
+  filter(
+    str_detect(
+      .$name, 
+      regex("^Not A", ignore_case = TRUE))) %>% 
+  count(name) %>% 
+  .$n %>% 
+  as.double()
+
+np <- 
+  district_vendors %>% 
+  filter(
+    str_detect(
+      .$name, 
+      regex("^Not P", ignore_case = TRUE))) %>% 
+  count(name) %>% 
+  .$n %>% 
+  as.double()
+
+vendor_id <- 
+  district_vendors %>% 
+  filter(
+    str_detect(
+      .$name, 
+      regex("^Vendor ID", ignore_case = TRUE))) %>% 
+  count(name)
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect()
+```

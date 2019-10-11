@@ -1,0 +1,216 @@
+---
+title: "Identify Insufficiently-detailed State of Utah Transactions"
+author: "Michael Jensen"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+
+
+**Input(s)**
+
+```{r}
+dsn_aws     <- "transpAWS"
+dsn_sf      <- "Salesforce"
+dsn_statedw <- "StateDW"
+```
+
+**Output(s)**
+
+
+
+# Libraries and Data Sources
+
+```{r}
+library(odbc)
+library(tidyverse)
+
+odbc_aws        <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_salesforce <- dbConnect(odbc::odbc(), dsn_sf)
+odbc_statedw    <- dbConnect(odbc::odbc(), dsn_statedw, password = "DW1234")
+rm(dsn_aws, dsn_sf, dsn_statedw)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+
+```
+
+
+# Execution
+
+```{r}
+# Type 22 (expenditures) indicates money spent. Type 24 (expenses) indicates money
+# out or something that has been expensed (e.g., a depreciation expense).
+table_account_type <- 
+  dbGetQuery(odbc_statedw, "SELECT * FROM Account_Type")
+
+table_dpt_and_div <- 
+  dbGetQuery(
+    odbc_statedw,
+    "SELECT DISTINCT
+      Department_Name, Division_Name
+    FROM Department
+    LEFT JOIN Division
+    ON Department.Department = Division.Department")
+```
+
+## Agency Fund - Political Check-off (State Treasurer)
+
+## Agency Fund - UDOT Mineral Lease (Division of Finance)
+
+```{sql, connection=odbc_statedw, output.var=udot_mineral_lease}
+SELECT 
+  Fiscal_Year_Period,
+  Amount,
+  Line_Description,
+  Vendor_Customer,
+  Vendor_Customer_Name,
+  Tran_ID
+FROM StateDW.dbo.Accounting_Journal
+WHERE Department = "810" -- Utah Department of Transportation
+AND Division = "8820"    -- DOT Mineral Lease
+AND Fund = "2800"        -- (DOT) Transportation Fund Unrestricted
+AND Account_Type = "22"  -- Expenditures
+AND (
+  --Fiscal_Year_Period LIKE "2014%" OR
+  --Fiscal_Year_Period LIKE "2015%" OR
+  --Fiscal_Year_Period LIKE "2016%" OR
+  --Fiscal_Year_Period LIKE "2017%" OR
+  Fiscal_Year_Period LIKE "2018%" OR
+  Fiscal_Year_Period LIKE "2019%")
+```
+
+## Agency Fund - Property Tax Valuation (State Auditor)
+
+## P-Card - State Auditor
+
+```{r}
+osa_pcard <- 
+  dbGetQuery(
+    odbc_statedw,
+    "SELECT 
+      Amount, Account_Type, Debit_Credit, Fiscal_Year, Fiscal_Period, 
+      Budget_Year_Period, Record_Number, Tran_ID, Ref_Doc_ID, Document_ID,
+      Check_Number, ZDate, Run_Date_Time, Doc_Record_Date, Invoice_Date,
+      Fund, Department, Unit, Division, Object, Revenue_Source, Appropriation,
+      Major_Program, Program, Posting_Code, Vendor_Customer_Indicator,
+      Vendor_Customer, Vendor_Customer_Name, Posting_Pair_Type, 
+      Doc_Function_Code, Document_Type, Accounting_Line_Number, 
+      Commodity_Line_Number, Vendor_Line_Number, Document_Version_Number,
+      Document_Code, Doc_Department, Line_Description
+    FROM Accounting_Journal
+    WHERE Department = '090'
+    AND Fiscal_Year = '2020'
+    AND Account_Type = '22'")
+```
+
+```{r}
+table_object <- 
+  dbGetQuery(
+    odbc_statedw,
+    "SELECT Object_Name
+    FROM Object
+    WHERE Object IN ('6185', '6260')"
+  )
+```
+
+```{r}
+sample_line_descriptions <- 
+  dbGetQuery(
+    odbc_statedw,
+    "SELECT DISTINCT Line_Description
+    FROM Accounting_Journal
+    WHERE Department = '090'
+    AND Fiscal_Year = '2020'
+    AND Account_Type = '22'")
+
+# The line descriptions are not formatted the same, so extracting the vendor 
+# name from this field will require some thought.
+```
+
+## P-card - Alpine School District
+
+Auditor Dougall thought that Alpine School District had solved the problem we are attempting to solve with the State of Utah.
+
+```{r}
+t_id <- 259
+
+table_transaction_group <- 
+  dbGetQuery(odbc_aws, "SELECT id, name FROM transaction_group")
+
+table_vendor <- 
+  dbGetQuery(
+    odbc_aws, 
+    paste("
+      SELECT id, name FROM vendor WHERE entity_id = ", t_id))
+
+alpine_sd_2018_exp <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+          SELECT 
+            posting_date, amount, description, type, 
+            org1, org2, org3,
+            cat1, cat2, cat3,
+            fund1, fund2,
+            vendor_id, account_number
+          FROM transaction
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t_id, "
+            AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))
+          AND fiscal_year = 2018
+          AND type = 1")) %>% 
+  left_join(table_transaction_group, by = c("org1" = "id")) %>% 
+    select(-org1) %>% rename(org1 = name) %>% 
+  left_join(table_transaction_group, by = c("org2" = "id")) %>% 
+    select(-org2) %>% rename(org2 = name) %>% 
+  left_join(table_transaction_group, by = c("org3" = "id")) %>% 
+    select(-org3) %>% rename(org3 = name) %>% 
+  left_join(table_transaction_group, by = c("cat1" = "id")) %>% 
+    select(-cat1) %>% rename(cat1 = name) %>% 
+  left_join(table_transaction_group, by = c("cat2" = "id")) %>% 
+    select(-cat2) %>% rename(cat2 = name) %>% 
+  left_join(table_transaction_group, by = c("cat3" = "id")) %>% 
+    select(-cat3) %>% rename(cat3 = name) %>% 
+  left_join(table_transaction_group, by = c("fund1" = "id")) %>% 
+    select(-fund1) %>% rename(fund1 = name) %>% 
+  left_join(table_transaction_group, by = c("fund2" = "id")) %>% 
+    select(-fund2) %>% rename(fund2 = name) %>% 
+  left_join(table_vendor, by = c("vendor_id" = "id")) %>% 
+    select(-vendor_id) %>% rename(vendor_name = name) %>% 
+  select(type, posting_date, amount, vendor_name, description,
+         org1, org2, org3, cat1, cat2, cat3, fund1, fund2)
+
+distinct_vendors <- 
+  alpine_sd_2018_exp %>% 
+  distinct(vendor_name)
+
+alpine_sd_2018_exp %>% 
+  select(-type) %>% 
+  filter(
+    str_detect(vendor_name, regex("^not", ignore_case = TRUE)) |
+    str_detect(vendor_name, regex("U S Bank", ignore_case = TRUE))) %>% 
+  write_csv(
+    "~/3 Project Support/Transparency-Research/Alpine SD 2018 Expenses - Sample.csv",
+    na = "")
+
+alpine_sd_2018_exp %>% 
+  select(-type) %>% 
+  write_csv(
+    "~/3 Project Support/Transparency-Research/Alpine SD 2018 Expenses.csv",
+    na = "")
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect()
+```
