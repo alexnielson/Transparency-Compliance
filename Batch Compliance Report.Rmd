@@ -249,6 +249,22 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
           regex("^[:digit:]{2}-[:alnum:]{3}-[:digit:]{4}-[:digit:]{4}-[:digit:]{3}-[:digit:]{4}$")))
     }
     
+    # Identify invalid fund codes:
+    
+    fund <- 
+      ucoa_reported$account_number %>% 
+      substring(1, 2) %>% 
+      unique()
+    
+    if (length(fund) > 0 &&
+        any(!fund %in% ucoa$usbe_fund)) {
+      
+      invalid_ucoa_info$invalid_fund <- 
+        fund[!fund %in% ucoa$usbe_fund] %>% 
+        paste(collapse = ", ")
+    }
+    
+    # Identify invalid expense and revenue codes:
     exp <- 
       ucoa_reported %>% 
       filter(type == 1) %>% 
@@ -268,7 +284,7 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
         exp[!(str_detect(exp, regex(".0000$")))] %>% 
         unique() %>%
         paste(collapse = ", ") %>%
-        sort()
+        sort()          # Why did I use `sort()` here? Does it even do anything?
     }
     
     # "0000" is not valid for the last four digits in an LEA's chart of
@@ -451,10 +467,11 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
                                 "file_total_amount"),
       entity_name         = name,
       entity_id           = sf_id,
-      fiscal_year         = map(batch_id, query_fiscal_year)) %>%
-    unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
-           username, uploaded_file, file_record_count, file_total_amount) %>%
-    unnest(fiscal_year)
+      fiscal_year         = map(batch_id, query_fiscal_year)) 
+  # %>%
+  #   unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
+  #          username, uploaded_file, file_record_count, file_total_amount) %>%
+  #   unnest(fiscal_year)
 }
 ```
 
@@ -757,6 +774,24 @@ ucoa <-
 
 rm(ucoa_fund, ucoa_function, ucoa_account, extra_fund_numbers, ucoa_account_exp,
    ucoa_account_rev)
+```
+
+## USBE Chart of Accounts
+
+```{r}
+usbe_fund <-
+  c(10,
+    20, 21, 23, 26:29,
+    30:32,
+    40, 49,
+    50:52,
+    60:69,
+    70, 71, 76, 79) %>%
+  as.character()
+
+ucoa$usbe_fund <- usbe_fund
+
+rm(usbe_fund)
 ```
 
 ## Reports
