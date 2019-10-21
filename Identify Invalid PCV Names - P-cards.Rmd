@@ -1,5 +1,5 @@
 ---
-title: "Identify Insufficiently-detailed State of Utah Transactions"
+title: "Identify Invalid PCV Names - Purchase Cards"
 author: "Michael Jensen"
 output: html_notebook
 ---
@@ -12,9 +12,9 @@ output: html_notebook
 **Input(s)**
 
 ```{r}
-dsn_aws     <- "transpAWS"
-dsn_sf      <- "Salesforce"
-dsn_statedw <- "StateDW"
+dsn_aws <- "transpAWS"
+dsn_sf  <- "Salesforce"
+dsn_sdw <- "StateDW"
 ```
 
 **Output(s)**
@@ -27,10 +27,10 @@ dsn_statedw <- "StateDW"
 library(odbc)
 library(tidyverse)
 
-odbc_aws        <- dbConnect(odbc::odbc(), dsn_aws)
-odbc_salesforce <- dbConnect(odbc::odbc(), dsn_sf)
-odbc_statedw    <- dbConnect(odbc::odbc(), dsn_statedw, password = "DW1234")
-rm(dsn_aws, dsn_sf, dsn_statedw)
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
+odbc_sdw <- dbConnect(odbc::odbc(), dsn_sdw, password = "DW1234")
+rm(dsn_aws, dsn_sf, dsn_sdw)
 ```
 
 # Function Definitions
@@ -43,6 +43,8 @@ rm(dsn_aws, dsn_sf, dsn_statedw)
 
 
 # Execution
+
+## State of Utah
 
 ```{r}
 # Type 22 (expenditures) indicates money spent. Type 24 (expenses) indicates money
@@ -60,9 +62,9 @@ table_dpt_and_div <-
     ON Department.Department = Division.Department")
 ```
 
-## Agency Fund - Political Check-off (State Treasurer)
+### Agency Fund - Political Check-off (State Treasurer)
 
-## Agency Fund - UDOT Mineral Lease (Division of Finance)
+### Agency Fund - UDOT Mineral Lease (Division of Finance)
 
 ```{sql, connection=odbc_statedw, output.var=udot_mineral_lease}
 SELECT 
@@ -86,9 +88,9 @@ AND (
   Fiscal_Year_Period LIKE "2019%")
 ```
 
-## Agency Fund - Property Tax Valuation (State Auditor)
+### Agency Fund - Property Tax Valuation (State Auditor)
 
-## P-Card - State Auditor
+### P-Card - State Auditor
 
 ```{r}
 osa_pcard <- 
@@ -149,7 +151,9 @@ table_vendor <-
     odbc_aws, 
     paste("
       SELECT id, name FROM vendor WHERE entity_id = ", t_id))
+```
 
+```{r}
 alpine_sd_2018_exp <- 
   dbGetQuery(
     odbc_aws,
@@ -192,7 +196,79 @@ alpine_sd_2018_exp <-
 distinct_vendors <- 
   alpine_sd_2018_exp %>% 
   distinct(vendor_name)
+```
 
+```{r}
+alpine_sd_2020_exp <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+          SELECT 
+            posting_date, amount, description, type, 
+            org1, org2, org3,
+            cat1, cat2, cat3,
+            fund1, fund2,
+            vendor_id, account_number
+          FROM transaction
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t_id, "
+            AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))
+          AND fiscal_year = 2020
+          AND type = 1")) %>% 
+  left_join(table_transaction_group, by = c("org1" = "id")) %>% 
+    select(-org1) %>% rename(org1 = name) %>% 
+  left_join(table_transaction_group, by = c("org2" = "id")) %>% 
+    select(-org2) %>% rename(org2 = name) %>% 
+  left_join(table_transaction_group, by = c("org3" = "id")) %>% 
+    select(-org3) %>% rename(org3 = name) %>% 
+  left_join(table_transaction_group, by = c("cat1" = "id")) %>% 
+    select(-cat1) %>% rename(cat1 = name) %>% 
+  left_join(table_transaction_group, by = c("cat2" = "id")) %>% 
+    select(-cat2) %>% rename(cat2 = name) %>% 
+  left_join(table_transaction_group, by = c("cat3" = "id")) %>% 
+    select(-cat3) %>% rename(cat3 = name) %>% 
+  left_join(table_transaction_group, by = c("fund1" = "id")) %>% 
+    select(-fund1) %>% rename(fund1 = name) %>% 
+  left_join(table_transaction_group, by = c("fund2" = "id")) %>% 
+    select(-fund2) %>% rename(fund2 = name) %>% 
+  left_join(table_vendor, by = c("vendor_id" = "id")) %>% 
+    select(-vendor_id) %>% rename(vendor_name = name) %>% 
+  select(type, posting_date, amount, vendor_name, description,
+         org1, org2, org3, cat1, cat2, cat3, fund1, fund2)
+
+distinct_vendors <- 
+  alpine_sd_2020_exp %>% 
+  distinct(vendor_name)
+```
+
+```{r}
+a <- 
+  alpine_sd_2020_exp %>% 
+  filter(
+    str_detect(vendor_name, regex("Not Applicable", ignore_case = TRUE))) %>% 
+  nrow()
+
+b <- 
+  alpine_sd_2020_exp %>% 
+  nrow()
+
+a/b
+
+c <- 
+  alpine_sd_2020_exp %>% 
+  # filter(
+  #   !str_detect(vendor_name, regex("Not Applicable", ignore_case = TRUE))) %>%
+  distinct(description)
+
+c %>% 
+  write_csv(
+    "~/FY 2020 Q1 Descriptions.csv",
+    na = "")
+```
+
+```{r}
 alpine_sd_2018_exp %>% 
   select(-type) %>% 
   filter(
@@ -212,5 +288,5 @@ alpine_sd_2018_exp %>%
 # DBMS Disconnection
 
 ```{r}
-dbDisconnect()
+dbDisconnect(odbc_aws, odbc_sf, odbc_sdw)
 ```
