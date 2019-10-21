@@ -1,0 +1,182 @@
+---
+title: "Compare Salesforce Totals to Transparent Utah Totals"
+author: "Michael Jensen"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Compare the expense and revenue totals collected during the report review process and stored in Salesforce to the totals reported to Transparent Utah.
+
+**Input(s)**
+
+```{r}
+dsn_aws <- "transpAWS"
+dsn_sf  <- "Salesforce"
+```
+
+**Output(s)**
+
+
+
+# Libraries and Data Sources
+
+```{r}
+library(magrittr)
+library(odbc)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
+rm(dsn_aws, dsn_sf)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r}
+  #   fiscal_year(num)
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   trxn_type (num): The transaction type (expense = 1, revenue = 2).
+```
+
+## query_totals()
+
+```{r}
+query_totals <- function(t_id, fiscal_year, trxn_type) {
+  # Query an entity's total expenses or revenues for a given fiscal year.
+  #
+  # Arguments:
+  #   t_id (num): The entity's Transparency ID, as queried from Salesforce
+  #     rather than Transparency.
+  #   fiscal_year(num)
+  #   trxn_type (num): The transaction type (expense = 1, revenue = 2).
+  #
+  # Value:
+  #   Double.
+  
+  if (is.na(t_id)) {
+    
+    return(NA)
+  }
+  
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT SUM(amount)
+      FROM transaction
+      WHERE fiscal_year = ", fiscal_year, "
+      AND batch_id IN (
+        SELECT id
+        FROM batch
+        WHERE entity_id = ", t_id, ")
+      AND type = ", trxn_type)) %>% 
+    as.double()
+}
+```
+
+# Execution
+
+## FY 2018
+
+```{r}
+sf_2018 <-  
+  dbGetQuery(
+    odbc_sf,
+    "SELECT 
+      a.Name                            AS entity_name,
+      a.Transparency_ID__c              AS t_id,
+      y.Name                            AS report_year,
+      t.Name                            AS record_type,
+      r.Total_Revenue_or_Expenditure__c AS total_rev_or_exp,
+      r.Total_Expenditure__c            AS total_exp,
+      r.Total_Revenue__c                AS total_rev
+    FROM Report_Review__c               AS r
+    LEFT JOIN Account                   AS a
+    ON r.Entity_Name__c = a.Id
+    LEFT JOIN RecordType                AS t
+    ON r.RecordTypeID = t.Id
+    LEFT JOIN Report_Year__c            AS y
+    ON r.review_report_year__c = y.Id
+    WHERE t.Name IN (
+      'AUP Checklist',
+      'Large Entity Checklist',
+      'LEA Checklist',
+      'Small Entity Checklist')
+    AND r.review_report_year__c IN (
+      SELECT Id
+      FROM Report_Year__c
+      WHERE Name = '2018'
+      AND IsDeleted = FALSE)
+    AND r.IsDeleted = FALSE") %>% 
+  mutate(total = 
+           if_else(
+             !is.na(total_rev_or_exp), 
+             total_rev_or_exp,
+             if_else(
+               total_exp > total_rev,
+               total_exp,
+               total_rev)))
+
+if (any(duplicated(sf_2018))) {
+  
+  duplicates <- sf_2018[duplicated(sf_2018), ]
+  
+  sf_2018    <- sf_2018[!duplicated(sf_2018), ]
+}
+
+fy_2018 <- 
+  sf_2018 %>% 
+  mutate(t_total_exp = 
+           map_dbl(t_id, query_totals, fiscal_year = 2018, trxn_type = 1),
+         t_total_rev = 
+           map_dbl(t_id, query_totals, fiscal_year = 2018, trxn_type = 2))
+
+fy_2018_total <- 
+  fy_2018 %>% 
+  summarize(
+    sf_total    = sum(total) %>% scales::dollar(),
+    t_total_exp = sum(t_total_exp, na.rm = TRUE) %>% scales::dollar(),
+    t_total_rev = sum(t_total_rev, na.rm = TRUE) %>% scales::dollar())
+
+fy_2018_totals <- 
+  fy_2018 %>% 
+  group_by(record_type) %>% 
+  summarize(
+    sf_group_total    = sum(total),
+    t_group_total_exp = sum(t_total_exp, na.rm = TRUE),
+    t_group_total_rev = sum(t_total_rev, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  mutate(
+    sf_pct_of_total = 
+      (sf_group_total / sum(sf_group_total)) %>%  round(digits = 3) * 100,
+    t_pct_of_total_exp =
+      (t_group_total_exp / sum(t_group_total_exp)) %>%  round(digits = 3) * 100,
+    t_pct_of_total_rev =
+      (t_group_total_rev / sum(t_group_total_rev)) %>%  round(digits = 3) * 100,
+    sf_group_total = scales::dollar(sf_group_total),
+    t_group_total_exp = scales::dollar(t_group_total_exp),
+    t_group_total_rev = scales::dollar(t_group_total_rev)) %>% 
+  arrange(desc(sf_pct_of_total), desc(t_pct_of_total_exp)) %>% 
+  add_row(
+    record_type        = "Total Across All Checklists",
+    sf_group_total     = fy_2018_total$sf_total,
+    t_group_total_exp  = fy_2018_total$t_total_exp,
+    t_group_total_rev  = fy_2018_total$t_total_rev)
+```
+
+```{r}
+fy_2018_totals %>% 
+  write_csv(
+    "~/Compare SF to AWS FY 2018.csv",
+    na = "")
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+```
