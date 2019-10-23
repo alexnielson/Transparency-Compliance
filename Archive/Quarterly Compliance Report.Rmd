@@ -1019,6 +1019,7 @@ sf_local_gov <-
             WHERE DeveloperName IN (
             'AOG', 
             'City',
+            'Community_Reinvestment_Agency',
             'Conservation_District',
             'County', 
             'District_Health',  
@@ -1030,11 +1031,9 @@ sf_local_gov <-
             'Redevelopment_Agency_Project_Area', 
             'School_District_or_Charter_School',
             'Town'))
-          AND Entity_Status__c IN (
-            'Current',
-            'On hold',
-            'Delinquent',
-            'Suspended')
+          AND Entity_Status__c NOT IN (
+            'Inactive',
+            'Dissolved')
           AND Name NOT IN (
             'Intermountain Power Agency', 
             'test city 2',
@@ -1526,14 +1525,6 @@ rm(sf_initial_report,
 
 Use this section to create a compliance report for a specific entity or group of entities:
 ```{r, eval=FALSE}
-entity_table <- 
-  dbGetQuery(
-    odbc_aws,
-    "
-    SELECT name, id
-    FROM entity
-    ORDER BY name")
-
 subset_of_entities <- 
   c(1526)
 ```
