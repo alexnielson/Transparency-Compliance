@@ -1697,7 +1697,7 @@ if (names(initial_report_date) == "previous_cycle") {
 #      processed.
 # 2.2) Hasn't had a batch processed in the previous month, which indicates 
 #      the entity isn't working with Darrell or John to upload data. Were the 
-#      entity to have a recently processed batch, a large amount of data missing 
+#      entity to have a recently processed batch, a large amount of data missing
 #      would indicate that the entity is actually complying with Transparency 
 #      reporting requirements (e.g., deleting batches in order to upload 
 #      year-end corrections or deleting batches in order to fix a problem with 
@@ -1709,8 +1709,8 @@ needs_extra_attention <-
     (str_count(compliance_report$missing_exp, ",") > 2 |
      str_count(compliance_report$missing_rev, ",") > 2 |
      str_count(compliance_report$missing_w2, ",") > 0),
-    (last_uploaded_batch  < Sys.Date() - months(1) |
-     last_processed_batch < Sys.Date() - months(1)))
+    (last_uploaded_batch  < Sys.Date() %m-% months(1) |
+     last_processed_batch < Sys.Date() %m-% months(1)))
 
 if (!exists("subset_of_entities")) {
   
