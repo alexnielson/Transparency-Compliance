@@ -1,7 +1,6 @@
 ---
 title: "Identify Invalid Employee Names"
 author: "Michael Jensen"
-date: "September 2019"
 output: html_notebook
 ---
 # Program Description
@@ -40,8 +39,6 @@ rm(dsn_aws, dsn_salesforce)
 ```{r, eval=FALSE}
 
 ```
-
-
 
 # Execution
 
@@ -87,10 +84,93 @@ sf_data <-
         Transparency_Exemption__c.Exemption_Reason__c LIKE 'No W-2%')")
 ```
 
-##
+## Unified Police Department
 
 ```{r}
+t_id <- 927
 
+payroll <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+          SELECT 
+            amount, fiscal_year, description,
+            tg1.name AS org1, tg2.name AS org2, tg3.name AS org3,
+            tg4.name AS cat1, tg4.name AS cat2, tg6.name AS cat3,
+            tg7.name AS fund1, tg8.name AS fund2,
+            v.name AS vendor_name, account_number
+          FROM transaction AS t
+          LEFT JOIN transaction_group AS tg1
+            ON t.org1 = tg1.id
+          LEFT JOIN transaction_group AS tg2
+            ON t.org2 = tg2.id
+          LEFT JOIN transaction_group AS tg3
+            ON t.org3 = tg3.id
+          LEFT JOIN transaction_group AS tg4
+            ON t.cat1 = tg4.id
+          LEFT JOIN transaction_group AS tg5
+            ON t.cat2 = tg5.id
+          LEFT JOIN transaction_group AS tg6
+            ON t.cat3 = tg6.id
+          LEFT JOIN transaction_group AS tg7
+            ON t.fund1 = tg7.id
+          LEFT JOIN transaction_group AS tg8
+            ON t.fund2 = tg8.id
+          LEFT JOIN vendor AS v
+            ON t.vendor_id = v.id
+          WHERE batch_id IN (
+            SELECT id
+            FROM batch
+            WHERE entity_id = ", t_id, "
+            AND status IN ('PROCESSED', 'PROCESSING', 'DONTDELETE'))
+          AND t.type = 3"))
+
+payroll_2019 <- 
+  payroll %>% 
+  filter(fiscal_year == 2019) %>% 
+  select(-fiscal_year, -org2, -org3, -cat3, -fund2,
+         -account_number)
+
+employees_2019 <- 
+  payroll_2019 %>% 
+  distinct(vendor_name)
+
+v_summary_2019 <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT v.name, vs.vendor_id, vs.total, vs.count
+      FROM vendor_summary AS vs
+      LEFT JOIN vendor AS v
+        ON vs.vendor_id = v.id
+      WHERE vs.entity_id = ", t_id, "
+      AND vs.type = 3"))
+
+v_summary_2019_1 <- 
+  v_summary_2019 %>% 
+  group_by(vendor_id, name) %>% 
+  summarize(
+    totals = sum(total),
+    counts = sum(count))
+
+any(duplicated(v_summary_2019_1$vendor_id))
+
+# Like the names that are masked, however, there are likely at least a handful of employees that are reported as Not Provided and have more than one vendor_id. This means that I can't say that the number of records in the data set of protected employees is the exact number of protected employees.
+not_provided <- 
+  v_summary_2019_1 %>% 
+  filter(str_detect(name, regex("^Not P", ignore_case = TRUE)))
+
+# Does each vendor_id count as an employee? Or does each unique name?
+not_protected <- 
+  v_summary_2019_1 %>% 
+  filter(!str_detect(name, regex("^Not P", ignore_case = TRUE))) %>% 
+  distinct(name) # Why does ANDERSON, COURTNEY ANN still appear three times?
+  
+ratio <- 
+  v_summary_2019_1 %>% 
+  summarize(
+    
+  )
 ```
 
 # DBMS Disconnection
