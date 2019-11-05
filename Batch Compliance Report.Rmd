@@ -1,7 +1,6 @@
 ---
 title: "Batch Compliance Report"
 author: "Michael Jensen"
-date: "September 2019"
 output: html_notebook
 ---
 # Program Description
@@ -467,11 +466,10 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
                                 "file_total_amount"),
       entity_name         = name,
       entity_id           = sf_id,
-      fiscal_year         = map(batch_id, query_fiscal_year)) 
-  # %>%
-  #   unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
-  #          username, uploaded_file, file_record_count, file_total_amount) %>%
-  #   unnest(fiscal_year)
+      fiscal_year         = map(batch_id, query_fiscal_year)) %>%
+    unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
+           username, uploaded_file, file_record_count, file_total_amount) %>%
+    unnest(fiscal_year)
 }
 ```
 
@@ -667,48 +665,39 @@ query_username <- function(batch_id) {
 sf_data <-
   dbGetQuery(
     odbc_sf,
-    paste("
-          SELECT
-            Account.Name                  AS name,
-            Account.Id                    AS id,
-            Account.Transparency_ID__c    AS t_id,
-            Account.Fiscal_Year_Begins__c AS begin_fy,
-            RecordType.DeveloperName      AS govt_type
-          FROM Account
-          JOIN RecordType
-          ON Account.RecordTypeId = RecordType.Id
-          WHERE Account.RecordTypeId IN (
-            SELECT Id
-            FROM RecordType
-            WHERE DeveloperName IN (
-              'AOG',
-              'City',
-              'Conservation_District',
-              'Community_Reinvestment_Agency',
-              'County',
-              'District_Health',
-              'Housing',
-              'Independent_Quasi_State_Entity',
-              'Institute_of_Higher_Education',
-              'Interlocal',
-              'Local_and_Special_Service_District',
-              'Mental_Health',
-              'Redevelopment_Agency_Project_Area',
-              'School_District_or_Charter_School',
-              'Town'))
-          AND Account.Entity_Status__c IN (
-            'Current',
-            'On hold',
-            'Delinquent',
-            'Suspended')
-          AND Account.Name NOT IN (
-            'Intermountain Power Agency',
-            'test city 2',
-            'Utah Associated Municipal Power Systems',
-            'Utah Municipal Power Agency')
-          AND (
-            Account.Expense_Revenue_Start_Date__c <= DATE() OR
-            Account.Expense_Revenue_Start_Date__c IS NULL)")) %>%
+    "SELECT 
+      a.Name                  AS name,
+      a.Id                    AS id,
+      a.Transparency_ID__c    AS t_id,
+      a.Fiscal_Year_Begins__c AS begin_fy,
+      r.Name                  AS govt_type
+    FROM Account         AS a
+    LEFT JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    WHERE a.RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE SobjectType = 'Account'
+      AND IsActive = 'TRUE'
+      AND Name NOT IN (
+        'Community User',
+        'Component', -- This govt type contains local governments, but not ones for which we enforce compliance.
+        'Court (Search Under Parent Entity)',
+        'CPA Firm',
+        'Educational Foundation or Component Unit', -- Not an entity we review for compliance.
+        'Financial Institution',
+        'Health Provider',
+        'Non Profits',
+        'State of Utah (agencies/depts/comp units/ etc.)'))
+    AND a.Name NOT IN (
+      'Intermountain Power Agency',
+      'test city 2',
+      'Utah Associated Municipal Power Systems',
+      'Utah Municipal Power Agency')
+    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    AND (
+      a.Expense_Revenue_Start_Date__c <= DATE() OR
+      a.Expense_Revenue_Start_Date__c IS NULL)") %>% 
   as_tibble() %>% 
   filter(!is.na(t_id))
 ```
