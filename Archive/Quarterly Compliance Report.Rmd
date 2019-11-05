@@ -30,8 +30,8 @@ initial_report_date <- as.Date("2019-08-05")
 
 # Insert a "#" before the name below that you do NOT want to use.
 names(initial_report_date) <- 
-  # "previous_cycle"
-"current_cycle"
+  "previous_cycle"
+# "current_cycle"
 ```
 
 **Output(s)**
@@ -1004,44 +1004,40 @@ if (names(initial_report_date) == "previous_cycle") {
 sf_local_gov <- 
   dbGetQuery(
     odbc_sf,
-    paste("
-          SELECT 
-            Name                          AS name, 
-            Id                            AS id,
-            Transparency_ID__c            AS t_id, 
-            Fiscal_Year_Begins__c         AS begin_fy,
-            Expense_Revenue_Start_Date__c AS begin_report_er, 
-            Wage_Start_Date__c            AS begin_report_w2
-          FROM Account
-          WHERE RecordTypeId IN (
-            SELECT Id
-            FROM RecordType
-            WHERE DeveloperName IN (
-            'AOG', 
-            'City',
-            'Community_Reinvestment_Agency',
-            'Conservation_District',
-            'County', 
-            'District_Health',  
-            'Institute_of_Higher_Education',
-            'Housing', 
-            'Interlocal', 
-            'Local_and_Special_Service_District', 
-            'Mental_Health', 
-            'Redevelopment_Agency_Project_Area', 
-            'School_District_or_Charter_School',
-            'Town'))
-          AND Entity_Status__c NOT IN (
-            'Inactive',
-            'Dissolved')
-          AND Name NOT IN (
-            'Intermountain Power Agency', 
-            'test city 2',
-            'Utah Associated Municipal Power Systems', 
-            'Utah Municipal Power Agency')
-          AND (
-            Expense_Revenue_Start_Date__c <= DATE() OR 
-            Expense_Revenue_Start_Date__c IS NULL)")) %>% 
+    "SELECT 
+      a.Name                          AS name,
+      a.Id                            AS id,
+      a.Transparency_ID__c            AS t_id,
+      a.Fiscal_Year_Begins__c         AS begin_fy,
+      a.Expense_Revenue_Start_Date__c AS begin_report_er, 
+      a.Wage_Start_Date__c            AS begin_report_w2
+    FROM Account         AS a
+    LEFT JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    WHERE a.RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE SobjectType = 'Account'
+      AND IsActive = 'TRUE'
+      AND Name NOT IN (
+        'Community User',
+        'Component', -- This govt type contains local governments, but not ones for which we enforce compliance.
+        'Court (Search Under Parent Entity)',
+        'CPA Firm',
+        'Educational Foundation or Component Unit', -- Not an entity we review for compliance.
+        'Financial Institution',
+        'Health Provider',
+        'Non Profits',
+        'State of Utah (agencies/depts/comp units/ etc.)'))
+    AND a.Name NOT IN (
+      'Intermountain Power Agency',
+      'test city 2',
+      'Utah Associated Municipal Power Systems',
+      'Utah Municipal Power Agency')
+    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    AND (
+      a.Expense_Revenue_Start_Date__c <= DATE() OR
+      a.Expense_Revenue_Start_Date__c IS NULL)") %>% 
   as_tibble()
 
 # Though I could combine the query that creates sf_independent_agency with the
@@ -1050,31 +1046,34 @@ sf_local_gov <-
 # of independent entities. If my program fails or there is a change in the data 
 # that I am not aware of, the checks in the "Validate" section below will help
 # me identify those changes.
-sf_independent_agency <- 
+            
+sf_independent_agency <-  
   dbGetQuery(
     odbc_sf,
-    paste("
-          SELECT 
-            Name                          AS name, 
-            Id                            AS id,
-            Transparency_ID__c            AS t_id, 
-            Fiscal_Year_Begins__c         AS begin_fy,
-            Expense_Revenue_Start_Date__c AS begin_report_er, 
-            Wage_Start_Date__c            AS begin_report_w2
-          FROM Account
-          WHERE RecordTypeId IN (
-            SELECT Id
-            FROM RecordType
-            WHERE DeveloperName IN (
-            'Independent_Quasi_State_Entity'))
-          AND Entity_Status__c IN (
-            'Current',
-            'On hold',
-            'Delinquent',
-            'Suspended')
-          AND (
-            Expense_Revenue_Start_Date__c <= DATE() OR 
-            Expense_Revenue_Start_Date__c IS NULL)")) %>% 
+    "SELECT 
+      a.Name                          AS name,
+      a.Id                            AS id,
+      a.Transparency_ID__c            AS t_id,
+      a.Fiscal_Year_Begins__c         AS begin_fy,
+      a.Expense_Revenue_Start_Date__c AS begin_report_er, 
+      a.Wage_Start_Date__c            AS begin_report_w2
+    FROM Account         AS a
+    LEFT JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    WHERE a.RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE SobjectType = 'Account'
+      AND IsActive = 'TRUE'
+      AND Name = 'Independent/Quasi State Entity')
+    AND a.Name NOT IN (
+      'Intermountain Power Agency',
+      'Utah Associated Municipal Power Systems',
+      'Utah Municipal Power Agency')
+    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    AND (
+      a.Expense_Revenue_Start_Date__c <= DATE() OR
+      a.Expense_Revenue_Start_Date__c IS NULL)") %>% 
   as_tibble()
 
 sf_exemptions <- 
