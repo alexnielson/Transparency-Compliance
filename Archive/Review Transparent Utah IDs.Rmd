@@ -1,0 +1,203 @@
+---
+title: "Review Transparent Utah IDs"
+author: "Michael Jensen"
+output: html_notebook
+---
+
+
+
+
+# Program Description
+
+**Purpose**
+
+
+
+**Input(s)**
+
+* The name of the ODBC connection to AWS.
+* The name of the ODBC connection to Salesforce.
+
+```{r}
+dsn_aws <- "transpAWS"
+dsn_sf     <- "Salesforce"
+```
+
+**Output(s)**
+
+
+
+# Libraries and Data Sources
+
+```{r, message=FALSE}
+library(odbc)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf     <- dbConnect(odbc::odbc(), dsn_sf)
+rm(dsn_aws, dsn_sf)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+  #
+```
+
+
+# Execution
+
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+```
+
+
+
+
+
+
+
+
+
+
+# Old Code
+# Program Description
+
+Compare the entity Transparent Utah IDs in Salesforce to those in the Transparent Utah database, for active and inactive entities.
+
+# Program
+
+## Inputs, Packages, & Data Connections
+
+```{r}
+library(odbc)
+library(tidyverse)
+
+odbc_sf  <- dbConnect(odbc::odbc(), "Salesforce")
+odbc_aws <- dbConnect(odbc::odbc(), "transpAWS")
+```
+
+## Import IDs
+
+```{r}
+aws_ids <- 
+  dbGetQuery(
+    odbc_aws,
+    "SELECT name, id AS t_id FROM entity") %>% 
+  mutate(t_id = t_id %>% as.numeric())
+
+sf_ids <- 
+  dbGetQuery(
+    odbc_sf,
+    "SELECT 
+      a.Name AS name,
+      a.Transparency_ID__c AS t_id,
+      r.Name AS govt_type,
+      a.Entity_Status__c AS entity_status
+    FROM Account AS a
+    LEFT JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    WHERE a.RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE SobjectType = 'Account'
+      AND IsActive = 'TRUE'
+      AND Name NOT IN (
+        'Community User',
+        'Component', -- This govt type contains local governments, but not ones
+                     -- for which we enforce compliance.
+        'Court (Search Under Parent Entity)',
+        'CPA Firm',
+        'Educational Foundation or Component Unit', -- Not an entity we review
+                                                    -- for compliance.
+        'Financial Institution',
+        'Health Provider',
+        'Non Profits'))
+    AND a.Name <> 'test city 2'") %>% 
+  as_tibble() %>% 
+  add_row(
+    name = "State of Utah", 
+    t_id = 1, 
+    govt_type = "State of Utah (agencies/depts/comp units/ etc.)",
+    entity_status = NA)
+```
+
+## Shared Transparency IDs
+
+```{r}
+shared_ids <- 
+  aws_ids %>% 
+  merge(sf_ids, by = "t_id", suffixes = c(".aws", ".sf")) %>% 
+  select(t_id, name.aws, name.sf)
+```
+
+## Unique IDs
+
+```{r}
+unique_aws_entities <- 
+  aws_ids %>% 
+  anti_join(sf_ids, by = "t_id") %>% 
+  filter(
+    name != "",
+    name != "AVAILABLE",
+    name != "Canyon Land County Improvement District(Replaced)",
+    name != "Grand County Water Conservancy District (Duplicate",
+    name != "Success Charter School",
+    name != "UHEAA - Student Loan Guarantee Program",
+    name != "UHEAA - Student Loan Purchase Program",
+    name != "Utah Educational Savings Plan",
+    name != "Utah State Board of Regents",
+    name != "Wasatch County SSD #1 (Heber Estates)",
+    name != "Weber Morgan Narcotics Strike Force (Weber County)",
+    name != "Wellsville-Mendon Conservation District (DUPLICATE",
+    name != "x",
+    name != "xk12",
+    name != "xxk12",
+    name != "XXSSD",
+    name != "zz",
+    name != "zzzz",
+    name != "zzzzz")
+```
+
+Find the entities unique to Salesforce. This list can be used as a reference in determining whether the entity list in Transparency is complete.
+
+* Note that some of the entities that appear below are component units and will therefore report with a parent entity.
+* Note that for record-keeping purposes, OSA's Salesforce database may have the same entity listed under two similar (yet different) names. Davis Technical College, for example, appears in the unique_sf_entities report, but the college does have a Transparency ID as Davis Applied Technology College. Thus, an entity may appear in the list below but that does not mean that the Transparency database is incomplete.
+
+```{r}
+unique_sf_entities <- 
+  sf_ids %>% 
+  anti_join(aws_ids, by = "t_id") %>% 
+  filter(
+    govt_type != "State of Utah (agencies/depts/comp units/ etc.)",
+    !entity_status %in% c("Inactive", "Dissolved"))
+```
+
+## Export
+
+```{r}
+# Export the shared IDs and use Excel's Fuzzy Match add-in to compare columns:
+shared_ids %>% 
+  write_csv(
+    file = "C:/Users/mjensen1/Desktop/Shared Transparency IDs.csv")
+
+unique_aws_entities %>% 
+  write_csv(
+    file = "C:/Users/mjensen1/Desktop/Unique AWS Entities.csv")
+
+unique_sf_entities %>% 
+  write_csv(
+    file = "C:/Users/mjensen1/Desktop/Unique SF Entities.csv")
+```
+
+## Close
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+rm(list = ls())
+```
