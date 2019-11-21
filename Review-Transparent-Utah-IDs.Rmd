@@ -1,0 +1,223 @@
+---
+title: "Review Transparent Utah IDs"
+author: "Michael Jensen"
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Compare the Transparent Utah IDs in Salesforce to those in the Transparent Utah database, for active, inactive, and dissolved entities, in order to identify discrepancies.
+
+**Input(s)**
+
+* The name of the ODBC connection to AWS.
+* The name of the ODBC connection to Salesforce.
+
+```{r}
+dsn_aws <- "transpAWS"
+dsn_sf  <- "Salesforce"
+```
+
+**Output(s)**
+
+* Report: IDs Unique to Salesforce
+  * For active entities that do not report with a parent entity.
+* Report: IDs Unique to Transparent Utah
+* Report: IDs Shared by Salesforce and Transparent Utah
+
+# Libraries and Data Sources
+
+```{r, message=FALSE}
+library(odbc)
+library(stringdist)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+odbc_sf  <- dbConnect(odbc::odbc(), dsn_sf)
+rm(dsn_aws, dsn_sf)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+  #
+```
+
+
+# Execution
+
+## Import Entity Names and Transparent Utah IDs
+
+```{r}
+ids_aws <- 
+  dbGetQuery(
+    odbc_aws,
+    "SELECT id AS t_id, name AS entity_name FROM entity") %>% 
+  mutate(t_id = t_id %>% as.numeric()) %>%
+  # Filter out entity names that are duplicates or nonsensical:
+  filter(!entity_name %in% c(
+    "",
+    "AVAILABLE",
+    "Canyon Land County Improvement District(Replaced)",
+    "Grand County Water Conservancy District (Duplicate",
+    # Replaced by Weber Morgan Strike Force w/t_id 1437:
+    "Weber Morgan Narcotics Strike Force (Weber County)",
+    "Wellsville-Mendon Conservation District (DUPLICATE",
+    "x",
+    "xk12",
+    "xxk12",
+    "XXSSD",
+    "z Available for Use 1",
+    "z Available for Use 2",
+    "zz",
+    "zzzz",
+    "zzzzz")) %>% 
+  as_tibble()
+
+ids_sf <- 
+  dbGetQuery(
+    odbc_sf,
+    "SELECT 
+      a.Transparency_ID__c AS t_id,
+      a.Name AS entity_name,
+      a.Entity_Status__c AS entity_status,
+      r.Name AS govt_type
+    FROM Account AS a
+    LEFT JOIN RecordType AS r
+      ON a.RecordTypeID = r.id
+    WHERE a.RecordTypeId IN (
+      SELECT Id
+      FROM RecordType
+      WHERE SobjectType = 'Account'
+      AND IsActive = 'TRUE'
+      AND Name NOT IN (
+        'Community User',
+        'Component', -- This govt type contains local governments, but not ones
+                     -- for which we enforce compliance.
+        'Court (Search Under Parent Entity)',
+        'CPA Firm',
+        'Educational Foundation or Component Unit', -- Not an entity we review
+                                                    -- for compliance.
+        'Financial Institution',
+        'Health Provider',
+        'Non Profits',
+        'State of Utah (agencies/depts/comp units/ etc.)'))
+    AND a.Name <> 'test city 2'") %>% 
+  as_tibble() %>% 
+  add_row(
+    t_id = 1,
+    entity_name = "State of Utah",
+    entity_status = "Current",
+    govt_type = "State of Utah")
+```
+
+## Report: IDs Unique to Salesforce
+
+For active entities that do not report with a parent entity.
+
+```{r}
+entities_reporting_with_parent <- 
+  dbGetQuery(
+    odbc_sf,
+    "SELECT 
+      a.Name AS entity_name
+    FROM Account AS a
+    LEFT JOIN Transparency_Exemption__c AS t
+      ON a.Id = t.Account__c
+    WHERE Transparency_ID__c IS NULL
+    AND Exemption_Reason__c LIKE '%Reports with another entity%'
+    AND (
+      Exemption_End_Date__c IS NULL OR
+      Exemption_End_Date__c >= DATE())")
+
+report_ids_unique_sf <- 
+  ids_sf %>% 
+  anti_join(ids_aws, by = "t_id") %>% 
+  filter(!entity_status %in% c("Inactive", "Dissolved")) %>% 
+  anti_join(entities_reporting_with_parent, by = "entity_name") %>% 
+  select(-t_id) %>% 
+  arrange(govt_type)
+
+rm(entities_reporting_with_parent)
+```
+
+## Report: IDs Unique to Transparent Utah
+
+```{r}
+report_ids_unique_aws <- 
+  ids_aws %>% 
+  anti_join(ids_sf, by = "t_id")
+```
+
+## Report: IDs Shared by Salesforce and Transparent Utah
+
+```{r}
+report_ids_shared$entity_name_aws %>% 
+  str_to_lower() %>% 
+  str_remove("//.") %>%
+  str_remove("#") %>% 
+  str_remove("center") %>% 
+  str_remove("charter") %>% 
+  str_remove("city") %>% 
+  str_remove("cnty") %>%
+  str_remove("county") %>% 
+  str_remove("corporation") %>% 
+  str_remove("corp") %>% 
+  str_remove("dissolved") %>% 
+  str_remove("school") %>% 
+  str_remove("schools") %>% 
+  str_remove("ssd") %>% 
+  str_remove("special service district") %>% 
+  str_remove("town") %>% 
+  str_to_title()
+
+remove_nonessential_words <- function() {
+  
+  
+}
+```
+
+```{r}
+report_ids_shared <- 
+  ids_aws %>% 
+  left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf"))%>% 
+  mutate(
+    entity_name_aws = 
+      str_to_title(entity_name_aws) %>% 
+      str_remove(" City") %>% 
+      str_remove(" County") %>% 
+      str_remove("Corporation"),
+    entity_name_sf  = 
+      str_to_title(entity_name_sf) %>% 
+      str_remove(" City") %>% 
+      str_remove(" County"),
+    string_dist = 
+      stringdist(entity_name_aws, entity_name_sf, method = "jw")) %>% 
+  arrange(desc(string_dist))
+```
+
+## Export
+
+```{r}
+# Export the shared IDs and use Excel's Fuzzy Match add-in to compare columns:
+report_ids_shared %>% 
+  write_csv(
+    file = "~/Shared Transparency IDs.csv")
+
+report_ids_unique_aws %>% 
+  write_csv(
+    file = "~/Unique AWS Entities.csv")
+
+report_ids_unique_sf %>% 
+  write_csv(
+    file = "~/Unique SF Entities.csv")
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+```
