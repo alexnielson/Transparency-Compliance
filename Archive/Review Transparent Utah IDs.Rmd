@@ -75,13 +75,6 @@ ids_aws <-
     "zz",
     "zzzz",
     "zzzzz")) %>% 
-  # Filter out State of Utah entities that reported separately to Transparent
-  # Utah, but for which we do not track compliance:
-  filter(!entity_name %in% c(
-    "UHEAA - Student Loan Guarantee Program",
-    "UHEAA - Student Loan Purchase Program",
-    "Utah Educational Savings Plan",
-    "Utah State Board of Regents"))
   as_tibble()
 
 ids_sf <- 
@@ -110,15 +103,21 @@ ids_sf <-
                                                     -- for compliance.
         'Financial Institution',
         'Health Provider',
-        'Non Profits',
-        'State of Utah (agencies/depts/comp units/ etc.)'))
+        'Non Profits'))
     AND a.Name <> 'test city 2'") %>% 
   as_tibble() %>% 
-  add_row(
-    t_id = 1,
-    entity_name = "State of Utah",
-    entity_status = "Current",
-    govt_type = "State of Utah")
+  mutate(
+    govt_type = 
+      if_else(
+        entity_name %in% 
+          c("State of Utah",
+            "Utah System of Higher Education - Student Loan Guarantee Program",
+            "Utah System of Higher Education - Student Loan Purchase Program",
+            "Utah System of Higher Education - Utah Educational Savings Plan dba my529",
+            "Utah System of Higher Education - Utah State Board of Regents"),
+        "Monitored State Agency",
+        govt_type)) %>% 
+  filter(govt_type != "State of Utah (agencies/depts/comp units/ etc.)")
 ```
 
 ## Report: IDs Unique to Salesforce
@@ -162,6 +161,32 @@ report_ids_unique_aws <-
 ## Report: IDs Shared by Salesforce and Transparent Utah
 
 ```{r}
+report_ids_shared$entity_name_aws %>% 
+  str_to_lower() %>% 
+  str_remove("//.") %>%
+  str_remove("#") %>% 
+  str_remove("center") %>% 
+  str_remove("charter") %>% 
+  str_remove("city") %>% 
+  str_remove("cnty") %>%
+  str_remove("county") %>% 
+  str_remove("corporation") %>% 
+  str_remove("corp") %>% 
+  str_remove("dissolved") %>% 
+  str_remove("school") %>% 
+  str_remove("schools") %>% 
+  str_remove("ssd") %>% 
+  str_remove("special service district") %>% 
+  str_remove("town") %>% 
+  str_to_title()
+
+remove_nonessential_words <- function() {
+  
+  
+}
+```
+
+```{r}
 report_ids_shared <- 
   ids_aws %>% 
   left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf"))%>% 
@@ -169,7 +194,8 @@ report_ids_shared <-
     entity_name_aws = 
       str_to_title(entity_name_aws) %>% 
       str_remove(" City") %>% 
-      str_remove(" County"),
+      str_remove(" County") %>% 
+      str_remove("Corporation"),
     entity_name_sf  = 
       str_to_title(entity_name_sf) %>% 
       str_remove(" City") %>% 
@@ -177,8 +203,6 @@ report_ids_shared <-
     string_dist = 
       stringdist(entity_name_aws, entity_name_sf, method = "jw")) %>% 
   arrange(desc(string_dist))
-
-
 ```
 
 ## Export
