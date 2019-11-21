@@ -166,10 +166,19 @@ report_ids_shared <-
   ids_aws %>% 
   left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf"))%>% 
   mutate(
-    entity_name_aws = str_to_title(entity_name_aws),
-    entity_name_sf  = str_to_title(entity_name_sf),
-    string_dist = stringdist(entity_name_aws, entity_name_sf, method = "jw")) %>% 
+    entity_name_aws = 
+      str_to_title(entity_name_aws) %>% 
+      str_remove(" City") %>% 
+      str_remove(" County"),
+    entity_name_sf  = 
+      str_to_title(entity_name_sf) %>% 
+      str_remove(" City") %>% 
+      str_remove(" County"),
+    string_dist = 
+      stringdist(entity_name_aws, entity_name_sf, method = "jw")) %>% 
   arrange(desc(string_dist))
+
+
 ```
 
 ## Export

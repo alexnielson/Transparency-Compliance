@@ -1,0 +1,127 @@
+---
+title: "Invalid PCV Names - Purchase Cards - Alpine School District"
+author: ""
+output: html_notebook
+---
+# Program Description
+
+**Purpose**
+
+Auditor Dougall believes that Alpine School District may have solved the problem of reporting purchase card vendors to Transparent Utah. If so, we hope that we can scale the district's solution to other Utah governments.
+
+**Input(s)**
+
+* The name of the ODBC connection to AWS.
+* The name of the ODBC connection to Salesforce.
+
+```{r}
+dsn_aws <- "transpAWS"
+```
+
+**Output(s)**
+
+* A report
+* A report and graph of the district's vendor names for 2014-2019.
+
+# Libraries and Data Sources
+
+```{r, message=FALSE}
+library(odbc)
+library(tidyverse)
+
+odbc_aws <- dbConnect(odbc::odbc(), dsn_aws)
+rm(dsn_aws)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+  #
+```
+
+```{r}
+compute_fy_total_amount <- function(fiscal_year, trxn_type, t_id) {
+  
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT SUM(amount)
+      FROM transaction
+      WHERE fiscal_year = ", fiscal_year, "
+      AND type = ", trxn_type, "
+      AND batch_id IN (
+        SELECT id
+        FROM batch
+        WHERE entity_id = ", t_id))
+}
+```
+
+```{r}
+trxns_2016 <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT v.name AS vendor_name, amount, account_number
+      FROM transaction AS t
+      LEFT JOIN vendor AS v
+        ON t.vendor_id = v.id
+      WHERE fiscal_year = 2016
+      AND type = 1
+      AND batch_id IN (
+        SELECT id FROM batch WHERE entity_id = 259)"))
+
+trxns_2018 <- 
+  dbGetQuery(
+    odbc_aws,
+    paste("
+      SELECT v.name AS vendor_name, amount, account_number
+      FROM transaction AS t
+      LEFT JOIN vendor AS v
+        ON t.vendor_id = v.id
+      WHERE fiscal_year = 2018
+      AND type = 1
+      AND batch_id IN (
+        SELECT id FROM batch WHERE entity_id = 259)"))
+
+summary_2016 <- 
+  trxns_2016 %>% 
+  group_by(vendor_name) %>% 
+  summarize(
+    annual_total = sum(amount),
+    pct_of_total = annual_total / sum(annual_total))
+```
+
+# Execution
+
+```{r}
+asd_vendors <- 
+  dbGetQuery(
+    odbc_aws,
+    "SELECT id, name AS vendor_name FROM vendor WHERE entity_id = 259")
+
+asd_vendors_distinct <- 
+  asd_vendors %>% 
+  distinct(vendor_name)
+
+asd_vendor_summary <- 
+  dbGetQuery(
+    odbc_aws,
+    "SELECT type, fiscal_year, total, name AS vendor_name
+    FROM vendor_summary
+    LEFT JOIN vendor
+      ON vendor_summary.vendor_id = vendor.id
+    WHERE vendor_summary.entity_id = 259")
+
+a <- 
+  asd_vendor_summary %>% 
+  group_by(type, vendor_name) %>% 
+  summarize(all_total = sum(total))
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect(odbc_aws, odbc_sf)
+```
