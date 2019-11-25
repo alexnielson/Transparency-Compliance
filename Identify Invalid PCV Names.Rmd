@@ -217,7 +217,7 @@ sf_data <-
             Account.Name                  AS entity_name,
             Account.Id                    AS sf_id,
             Account.Transparency_ID__c    AS t_id
-            -- RecordType.DeveloperName      AS govt_type
+            -- RecordType.DeveloperName   AS govt_type
           FROM Account
           JOIN RecordType
           ON Account.RecordTypeId = RecordType.Id
@@ -258,6 +258,8 @@ sf_data <-
 ```
 
 ## Transparent Utah - Vendor-to-Total Ratio
+
+I think a more useful metric would be the dollar values, rather than percentage of transactions. It will be more easy to grasp the scope of the problem when conveyed in dollars.
 
 ```{r}
 invalid_names <- 
