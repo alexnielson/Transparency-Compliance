@@ -733,7 +733,7 @@ query_posting_dates <- function(batch_id, begin_fy, trxn_type) {
     dbGetQuery(
       odbc_aws,
       paste("
-            SELECT DISTINCT posting_date
+            SELECT DISTINCT posting_date, fiscal_year
             FROM transaction
             WHERE batch_id = ", batch_id, "
             AND type = ", trxn_type, "
@@ -741,7 +741,13 @@ query_posting_dates <- function(batch_id, begin_fy, trxn_type) {
             AND (
               YEAR(posting_date) = fiscal_year OR
               YEAR(posting_date) + 1 = fiscal_year)")) %>% 
-      .[["posting_date"]]
+      as_tibble() %>% 
+      mutate(
+        fiscal_year = as.numeric(fiscal_year),
+        fyyy.q = posting_date %>% convert_to_fyyy.q(begin_fy) %>% floor()) %>% 
+      filter(identical(fiscal_year, fyyy.q)) %>% 
+      .[["posting_date"]] %>% 
+      as_vector()
   }
 }
 ```
@@ -1543,7 +1549,7 @@ rm(sf_initial_report,
 Use this section to create a compliance report for a specific entity or group of entities:
 ```{r, eval=FALSE}
 subset_of_entities <- 
-  c(21, 275, 277, 279)
+  c(1608)
 ```
 
 ```{r}
