@@ -621,7 +621,7 @@ query_last_processed_batch <- function(t_id) {
   
   if (is.na(t_id)) {
     
-    "01/01/1900"
+    as.Date("1900-01-01")
     
   } else {
     
@@ -637,11 +637,11 @@ query_last_processed_batch <- function(t_id) {
     
     if (nrow(last_processed_batch) == 0 || is.na(last_processed_batch[[1]])) {
       
-      "01/01/1900"
+      as.Date("1900-01-01")
       
     } else {
       
-      last_processed_batch[[1]] %>% as.Date() %>% format("%m/%d/%Y")
+      last_processed_batch[[1]] %>% as.Date()
     }
   }
 }
@@ -662,7 +662,7 @@ query_last_uploaded_batch <- function(t_id) {
 
   if (is.na(t_id)) {
     
-    "01/01/1900"
+    as.Date("1900-01-01")
     
   } else {
     
@@ -678,11 +678,11 @@ query_last_uploaded_batch <- function(t_id) {
     
     if (nrow(last_uploaded_batch) == 0 || is.na(last_uploaded_batch[[1]])) {
       
-      "01/01/1900"
+      as.Date("1900-01-01")
       
     } else {
       
-      last_uploaded_batch[[1]] %>% as.Date() %>% format("%m/%d/%Y")
+      last_uploaded_batch[[1]] %>% as.Date()
     }
   }
 }
@@ -1741,16 +1741,28 @@ if (!exists("subset_of_entities")) {
     "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
   
   compliance_report %>%
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>% 
     write_csv(
       path = paste0(file_path, Sys.Date(), " Compliance Report.csv"),
       na = "")
   
   naughty_list %>% 
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>%
     write_csv(
       path = paste0(file_path, Sys.Date(), " SF Status Should Be DE or Hold.csv"),
       na = "")
   
   needs_extra_attention %>% 
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>%
     write_csv(
       path = paste0(file_path, Sys.Date(), " Needs Extra Attention.csv"),
       na = "")
