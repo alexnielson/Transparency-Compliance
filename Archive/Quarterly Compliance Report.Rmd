@@ -745,7 +745,7 @@ query_posting_dates <- function(batch_id, begin_fy, trxn_type) {
       mutate(
         fiscal_year = as.numeric(fiscal_year),
         fyyy.q = posting_date %>% convert_to_fyyy.q(begin_fy) %>% floor()) %>% 
-      filter(identical(fiscal_year, fyyy.q)) %>% 
+      filter(fiscal_year == fyyy.q) %>% 
       .[["posting_date"]] %>% 
       as_vector()
   }
@@ -1549,7 +1549,7 @@ rm(sf_initial_report,
 Use this section to create a compliance report for a specific entity or group of entities:
 ```{r, eval=FALSE}
 subset_of_entities <- 
-  c(1608)
+  c(373, 1608)
 ```
 
 ```{r}
