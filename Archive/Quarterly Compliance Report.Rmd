@@ -1007,7 +1007,7 @@ if (names(initial_report_date) == "previous_cycle") {
 ### Import
 
 ```{r}
-sf_local_gov <- 
+sf_entity_info <- 
   dbGetQuery(
     odbc_sf,
     "SELECT 
@@ -1060,42 +1060,6 @@ sf_local_gov <-
   # The State of Utah is required to report to Transparent Utah, but in most instances we do not monitor its data:
   filter(name != "State of Utah") %>% 
   select(-govt_type)
-
-# Though I could combine the query that creates sf_independent_agency with the
-# query that creates sf_local_gov, I chose to not do so. My reason for keeping
-# the queries separate is that I can more easily identify changes to the number
-# of independent entities. If my program fails or there is a change in the data 
-# that I am not aware of, the checks in the "Validate" section below will help
-# me identify those changes.
-            
-sf_independent_agency <-  
-  dbGetQuery(
-    odbc_sf,
-    "SELECT 
-      a.Name                          AS name,
-      a.Id                            AS id,
-      a.Transparency_ID__c            AS t_id,
-      a.Fiscal_Year_Begins__c         AS begin_fy,
-      a.Expense_Revenue_Start_Date__c AS begin_report_er, 
-      a.Wage_Start_Date__c            AS begin_report_w2
-    FROM Account         AS a
-    LEFT JOIN RecordType AS r
-    ON a.RecordTypeId = r.Id
-    WHERE a.RecordTypeId IN (
-      SELECT Id
-      FROM RecordType
-      WHERE SobjectType = 'Account'
-      AND IsActive = 'TRUE'
-      AND Name = 'Independent/Quasi State Entity')
-    AND a.Name NOT IN (
-      'Intermountain Power Agency',
-      'Utah Associated Municipal Power Systems',
-      'Utah Municipal Power Agency')
-    AND Entity_Status__c NOT IN ('Inactive', 'Dissolved')
-    AND (
-      a.Expense_Revenue_Start_Date__c <= DATE() OR
-      a.Expense_Revenue_Start_Date__c IS NULL)") %>% 
-  as_tibble()
 
 sf_exemptions <- 
   dbGetQuery(
@@ -1177,7 +1141,7 @@ sf_status_history <-
       WHERE 
         STRFTIME('%Y/%m/%d', CreatedDate) >= 
         STRFTIME(", report_date_as_character, ")")) %>%
-  left_join(sf_local_gov, by = "id") %>% 
+  left_join(sf_entity_info, by = "id") %>% 
   select(name, id, created_date, status) %>% 
   arrange(name, created_date) %>% 
   group_by(id) %>% 
@@ -1195,25 +1159,12 @@ rm(report_date_as_character, report_date)
 # validate_nrow() is a simple check on whether the data imported from Salesforce
 # correctly. It won't catch all errors, but checking the number of rows has 
 # helped me identify significant problems before the rest of the report runs.
-validate_nrow(sf_local_gov, 1000)
+validate_nrow(sf_entity_info, 1000)
 validate_nrow(sf_initial_report, 1000)
 
 rm(validate_nrow)
 
-(identical(sf_independent_agency %>% nrow() %>% as.numeric(), 14)) ||
-  
-  stop("The number of rows in sf_independent_agency does not match the expected
-       number. Did the data frame import correctly? Did the number of entites
-       we monitor change?", call. = FALSE)
-
 # Validate sf_entity_info ####
-
-sf_entity_info <- 
-  sf_local_gov %>% 
-  bind_rows(sf_independent_agency) %>% 
-  as_tibble()
-
-rm(sf_local_gov, sf_independent_agency)
 
 if (class(sf_entity_info$name)            != "character" ||
     class(sf_entity_info$id)              != "character" ||
@@ -1549,7 +1500,7 @@ rm(sf_initial_report,
 Use this section to create a compliance report for a specific entity or group of entities:
 ```{r, eval=FALSE}
 subset_of_entities <- 
-  c(373, 1608)
+  c(373, 1608, 623, 1640)
 ```
 
 ```{r}
