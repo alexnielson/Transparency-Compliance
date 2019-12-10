@@ -876,6 +876,10 @@ Code for testing the Invalid Batch Report:
 ```{r, eval=FALSE}
 original <- sf_data
 
+sf_data <- 
+  original %>% 
+  slice(901:933)
+
 sf_data <-
   sf_data %>%
   filter(t_id == 445 | # Highland City
