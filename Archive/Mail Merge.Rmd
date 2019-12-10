@@ -25,7 +25,15 @@ notice_type <-
 
 **Output(s)**
 
-A .csv file containing a record for each entity that is missing a required report, with the following fields:
+A .csv file containing a record for each entity that is missing a required Transparent Utah report, with the following fields:
+
+* Entity name
+* Entity CFO name
+* Entity CAO name
+* Entity address information
+* A field for each report the entity is missing
+
+A .csv file containing a record for each entity that is missing a required OSA or State Treasurer report, with the following fields:
 
 * Entity name
 * Entity CFO name
@@ -469,48 +477,79 @@ missing_reports_transp <-
 #   remove_empty("cols")
 ```
 
-## Join Reports
+## Merge Reports with Contact Information
 
 ```{r}
-missing_reports <- 
-  missing_reports_osa %>% 
-  full_join(missing_reports_transp, by = "entity_name")
-
-report_send_notices <- 
+report_send_notices_osa <- 
   contact_info %>% 
-  right_join(missing_reports, by = "entity_name")
+  right_join(missing_reports_osa, by = "entity_name")
 
-duplicate <- duplicated(report_send_notices$entity_name)
+report_send_notices_transp <- 
+  contact_info %>% 
+  right_join(missing_reports_transp, by = "entity_name")
 
-report_send_notices <- 
-  report_send_notices[!duplicate, ]
+# While revising this program, I discovered a few duplicate entities. I think 
+# my revisions corrected the problem, but I'll keep the code below for now.
+duplicate_osa <- duplicated(report_send_notices_osa$entity_name)
+
+duplicate_transp <- duplicated(report_send_notices_transp$entity_name)
+
+report_send_notices_osa <- 
+  report_send_notices_osa[!duplicate_osa, ]
+
+report_send_notices_transp <- 
+  report_send_notices_transp[!duplicate_transp, ]
 
 rm(missing_reports_osa, missing_reports_transp, missing_reports, 
    contact_info, duplicate)
+
+# Export reports:
 
 file_path <-
   "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
 
 if (notice_type == "60_day_notice") {
   
-  report_send_notices %>% 
+  report_send_notices_osa %>% 
     write_csv(
-      path = paste0(file_path, Sys.Date(), " Mail Merge 60-day Notice.csv"),
-      na = ""
-    )
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge 60-day Notice OSA.csv"),
+      na = "")
+  
+  report_send_notices_transp %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge 60-day Notice Transp.csv"),
+      na = "")
   
 } else if (notice_type == "hold_or_suspend") {
   
-  report_send_notices %>% 
+  report_send_notices_osa %>% 
     filter(is.na(non_taxing_entity) | non_taxing_entity == FALSE) %>% 
     write_csv(
-      path = paste0(file_path, Sys.Date(), " Mail Merge Hold Notice.csv"),
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge Hold Notice OSA.csv"),
       na = "")
   
-  report_send_notices %>% 
+  report_send_notices_transp %>% 
+    filter(is.na(non_taxing_entity) | non_taxing_entity == FALSE) %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge Hold Notice Transp.csv"),
+      na = "")
+  
+  report_send_notices_osa %>% 
     filter(non_taxing_entity == TRUE) %>% 
     write_csv(
-      path = paste0(file_path, Sys.Date(), " Mail Merge Suspend Notice.csv"),
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge Suspend Notice OSA.csv"),
+      na = "")
+  
+  report_send_notices_transp %>% 
+    filter(non_taxing_entity == TRUE) %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge Suspend Notice Transp.csv"),
       na = "")
 }
 ```
