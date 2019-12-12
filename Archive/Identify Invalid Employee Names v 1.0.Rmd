@@ -86,6 +86,11 @@ sf_data <-
 
 ## Unified Police Department
 
+Per 2019-11 discussion with Utah Interactive, determining the number of employees at a government is difficult. It isn't a matter of simply counting records.
+
+Per 2019-12-12 email from Harry Souvall (Unified Police District), the total number of employees in FY 2019 was 986, and the number of protected employees was 258. This puts the protected-to-total ratio for UPD at 26%.
+
+
 ```{r}
 t_id <- 927
 
