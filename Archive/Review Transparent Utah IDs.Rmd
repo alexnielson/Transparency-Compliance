@@ -212,7 +212,7 @@ report_ids_shared <-
   select(string_distance, entity_name_aws, entity_name_sf, t_id, govt_type,
          entity_status)
 
-# The stripped version may be more useful:
+# The stripped version is another way to compare IDs:
 report_ids_shared_stripped <- 
   ids_aws %>% 
   left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf")) %>% 
