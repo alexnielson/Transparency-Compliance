@@ -378,7 +378,7 @@ ggplot(type_2_total_trxns,
 
 For district and school-level information, I didn't see any instances of "SCH Vendor ID: ######," or "Vendor ID: ######" reported as a vendor name.
 
-## To review
+## Code to review
 
 ```{r}
  %>% 
