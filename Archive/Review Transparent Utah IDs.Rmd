@@ -43,9 +43,47 @@ rm(dsn_aws, dsn_sf)
 ## Argument Definitions
 
 ```{r, eval=FALSE}
-  #
+  #   char_string (char): A character vector.
 ```
 
+## `remove_nonessential_characters`
+
+```{r}
+remove_nonessential_characters <- function(char_string) {
+  # Remove words that inflate the string distance between two strings.
+  #
+  # Arguments:
+  #   char_string (char): A character vector.
+  #
+  # Value:
+  #   Character.
+  
+  char_string %>% 
+    str_to_lower() %>% 
+    str_remove(" #") %>% 
+    str_remove(" charter") %>% 
+    str_remove(" city") %>% 
+    str_remove(" corp ") %>% 
+    str_remove(" corporation") %>% 
+    str_remove(" county") %>%
+    str_remove(" corp ") %>% 
+    str_remove(" corp.") %>% 
+    str_remove(" corporation") %>%
+    str_remove("housing authority") %>% 
+    str_remove(" pd") %>% 
+    str_remove(" police department") %>% 
+    str_remove(" ssd") %>% 
+    str_remove(" spec serv dist") %>% 
+    str_remove(" special service dist") %>% 
+    str_remove(" special service distr") %>% 
+    str_remove(" special serv. district") %>% 
+    str_remove(" special service district") %>% 
+    str_remove(" town") %>%
+    str_remove("uheaa - ") %>% 
+    str_remove("utah system of higher education - ") %>% 
+    str_remove(" of ")
+}
+```
 
 # Execution
 
@@ -122,7 +160,7 @@ ids_sf <-
 
 ## Report: IDs Unique to Salesforce
 
-For active entities that do not report with a parent entity.
+This report is for active entities that do not report with a parent entity.
 
 ```{r}
 entities_reporting_with_parent <- 
@@ -161,65 +199,36 @@ report_ids_unique_aws <-
 ## Report: IDs Shared by Salesforce and Transparent Utah
 
 ```{r}
-report_ids_shared$entity_name_aws %>% 
-  str_to_lower() %>% 
-  str_remove("//.") %>%
-  str_remove("#") %>% 
-  str_remove("center") %>% 
-  str_remove("charter") %>% 
-  str_remove("city") %>% 
-  str_remove("cnty") %>%
-  str_remove("county") %>% 
-  str_remove("corporation") %>% 
-  str_remove("corp") %>% 
-  str_remove("dissolved") %>% 
-  str_remove("school") %>% 
-  str_remove("schools") %>% 
-  str_remove("ssd") %>% 
-  str_remove("special service district") %>% 
-  str_remove("town") %>% 
-  str_to_title()
-
-remove_nonessential_words <- function() {
-  
-  
-}
-```
-
-```{r}
 report_ids_shared <- 
   ids_aws %>% 
-  left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf"))%>% 
+  left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf")) %>% 
+  mutate(
+    entity_name_aws = entity_name_aws %>% str_to_title(),
+    entity_name_sf = entity_name_sf %>% str_to_title(),
+    string_distance = 
+      stringdist(entity_name_aws, entity_name_sf, method = "jw") %>% 
+      round(digits = 2)) %>% 
+    arrange(desc(string_distance)) %>% 
+  select(string_distance, entity_name_aws, entity_name_sf, t_id, govt_type,
+         entity_status)
+
+# The stripped version may be more useful:
+report_ids_shared_stripped <- 
+  ids_aws %>% 
+  left_join(ids_sf, by = "t_id", suffix = c("_aws", "_sf")) %>% 
   mutate(
     entity_name_aws = 
-      str_to_title(entity_name_aws) %>% 
-      str_remove(" City") %>% 
-      str_remove(" County") %>% 
-      str_remove("Corporation"),
-    entity_name_sf  = 
-      str_to_title(entity_name_sf) %>% 
-      str_remove(" City") %>% 
-      str_remove(" County"),
-    string_dist = 
-      stringdist(entity_name_aws, entity_name_sf, method = "jw")) %>% 
-  arrange(desc(string_dist))
-```
-
-## Export
-
-```{r}
-# Export the shared IDs and use Excel's Fuzzy Match add-in to compare columns:
-report_ids_shared %>% 
-  write_csv(
-    file = "~/Shared Transparency IDs.csv")
-
-report_ids_unique_aws %>% 
-  write_csv(
-    file = "~/Unique AWS Entities.csv")
-
-report_ids_unique_sf %>% 
-  write_csv(
-    file = "~/Unique SF Entities.csv")
+      entity_name_aws %>% 
+      map_chr(remove_nonessential_characters),
+    entity_name_sf = 
+      entity_name_sf %>% 
+      map_chr(remove_nonessential_characters),
+    string_distance = 
+      stringdist(entity_name_aws, entity_name_sf, method = "jw") %>% 
+      round(digits = 2)) %>% 
+    arrange(desc(string_distance)) %>% 
+  select(string_distance, entity_name_aws, entity_name_sf, t_id, govt_type,
+         entity_status)
 ```
 
 # DBMS Disconnection
