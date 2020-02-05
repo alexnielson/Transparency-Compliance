@@ -30,8 +30,8 @@ initial_report_date <- as.Date("2019-11-05")
 
 # Insert a "#" before the name below that you do NOT want to use.
 names(initial_report_date) <- 
-  # "previous_cycle"
-"current_cycle"
+   "previous_cycle"
+  #"current_cycle"
 ```
 
 **Output(s)**
@@ -1269,7 +1269,7 @@ if (sf_entity_info %>%
     sf_entity_info %>% 
     filter(month(begin_report_w2) != month(begin_fy))
   
-  stop("The month of begin_report_er must match the month of begin_fy.
+  stop("The month of begin_report_w2 must match the month of begin_fy.
        Update in Salesforce (create an exemption if necessary) and reimport.",
        call. = FALSE)
 }
@@ -1289,6 +1289,7 @@ if (sf_entity_info %>%
 
 # Validate sf_exemptions ####
 
+## check that correct field data classes
 if (class(sf_exemptions$name)                != "character" ||
     class(sf_exemptions$id)                  != "character" ||
     class(sf_exemptions$transaction_type)    != "character" ||
@@ -1303,6 +1304,7 @@ if (class(sf_exemptions$name)                != "character" ||
        call. = FALSE)  
 }
 
+## check that all entities have a name and Salesforce id
 if (sf_exemptions %>% 
     filter(is.na(name) | is.na(id)) %>% 
     nrow() > 0) {
@@ -1317,6 +1319,7 @@ if (sf_exemptions %>%
        call. = FALSE)
 }
 
+## check that the begin_fy is up to date. 
 if (sf_exemptions %>% 
     filter(begin_fy <= (today() - months(12))) %>% 
     nrow() > 0) {
@@ -1330,6 +1333,7 @@ if (sf_exemptions %>%
 
 rm(make_current_begin_fy)
 
+#check that the exemption start date is not after the exemption end date
 if (sf_exemptions %>% 
     filter(exemption_end < exemption_start) %>% 
     nrow() > 0) {
@@ -1343,6 +1347,8 @@ if (sf_exemptions %>%
        call. = FALSE)
 }
 
+# check that if a entitiy has reccuring exmption, that it has both start and end
+# dates available. 
 if (sf_exemptions %>% 
     filter(
       recurring_exemption == TRUE & (
@@ -1360,6 +1366,7 @@ if (sf_exemptions %>%
        call. = FALSE)
 }
 
+#check that a temporary exmption has both start and end dates.
 if (sf_exemptions %>% 
     filter(
       exemption_type == "Temporary" & (
@@ -1377,6 +1384,7 @@ if (sf_exemptions %>%
        call. = FALSE)
 }
 
+#check w-2 exemptions are not reccuring. 
 if (sf_exemptions %>% 
     filter(
       recurring_exemption == TRUE &
@@ -1395,6 +1403,7 @@ if (sf_exemptions %>%
        call. = FALSE)
 }
 
+#check that w-2 exemption matches first month of entity fiscal year
 if (sf_exemptions %>% 
     filter(
       exemption_type == "Permanent"     &
@@ -1691,6 +1700,37 @@ if (!exists("subset_of_entities")) {
   file_path <-
     "S:/Localgov/LG Compliance/Transparency Compliance/Compliance Reports/"
   
+  compliance_report %>%
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Compliance Report.csv"),
+      na = "")
+  
+  naughty_list %>% 
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>%
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " SF Status Should Be DE or Hold.csv"),
+      na = "")
+  
+  needs_extra_attention %>% 
+    # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
+    mutate(
+      last_processed_batch = last_processed_batch %>% format("%m/%d/%Y"),
+      last_uploaded_batch  = last_uploaded_batch %>% format("%m/%d/%Y")) %>%
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Needs Extra Attention.csv"),
+      na = "")
+}
+
+if (exists("subset_of_entities")) {
+  
+  file_path <- "E:/AlexNielson/temp/"
   compliance_report %>%
     # Reformat date fields to match format in Salesforce (mm/dd/yyyy):
     mutate(

@@ -312,7 +312,7 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
       filter(
         !str_detect(
           ucoa_reported$account_number,
-          regex("^[:digit:]{3}-[:digit:]{6}-[:digit:]{8}$"))) %>% 
+          regex())) %>% 
       .[["account_number"]] %>% 
       paste(collapse = ", ") %>% 
       sort()

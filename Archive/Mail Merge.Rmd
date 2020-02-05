@@ -18,9 +18,9 @@ Compile and format the information needed to send the 60-day Warning postcards o
 dsn_sf <- "Salesforce"
 
 # Select the appropriate notice type:
-notice_type <- 
-  # "60_day_notice"
-  "hold_or_suspend"
+notice_type <-
+  #"hold_or_suspend"
+  #"10_day_budget_notice"
 ```
 
 **Output(s)**
@@ -312,7 +312,9 @@ reports__c <-
       'Impact Fee Report',
       'Impact Fees',
       'Self-Evaluation Form',
-      'Self Evaluation Form')
+      'Self Evaluation Form',
+      --Added by Alex Nielson
+      'Approved Budget')
     AND r.Entity_Type__c IN (
       SELECT Name
       FROM RecordType
@@ -346,7 +348,7 @@ missing_reports_osa <-
 
 missing_reports_osa <- 
   missing_reports_osa %>% 
-  spread(report_id, missing_report)
+  spread(report_id, missing_report, entity_name)
 
 # Alex had the group_by(), summarize_all(), and mutate_all() functions piped as 
 # the last two lines in the code above. I'm not sure why, as it looks like she 
@@ -387,6 +389,99 @@ missing_reports_osa <-
 
 missing_reports_osa$entity_name <- 
   as.character(missing_reports_osa$entity_name)
+```
+
+## Salesforce - Missing Budgets
+```{r}
+report_budget_year <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      Name AS report_budget_year, 
+      Id
+    FROM Report_Year__c
+    WHERE IsDeleted = FALSE
+    AND Delinquent_Budget__c > 0")
+
+reports__c <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name AS entity_name, 
+      Report_Type__c AS missing_report,
+      Report_Status__c
+    FROM Reports__c AS r
+    LEFT JOIN Account AS a
+    ON r.Account__c = a.Id
+    WHERE r.IsDeleted = FALSE
+    AND Delinquent__c = TRUE
+    AND r.Report_Type__c IN ('Approved Budget')
+    AND r.Entity_Type__c IN (
+      SELECT Name
+      FROM RecordType
+      WHERE Name IN (
+        'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+        'County', 'District Health', 'Housing', 'Independent/Quasi State Entity',
+        'Institution of Higher Education', 'Interlocal', 
+        'Local and Special Service District', 'Mental Health', 'Non Profits', 
+        'Redevelopment Agency/Project Area', 'School District or Charter School',
+        'Town'))
+    AND a.Entity_Status__c IN (
+      'Current',
+      'Delinquent',
+      'Suspended',
+      'On hold')")
+
+missing_budgets_osa <- 
+  reports__c %>% 
+  left_join(report_budget_year, by = c("Report_Status__c" = "Id")) %>% 
+  unite(missing_report, report_budget_year, missing_report, sep = " ") %>% 
+  select(-Report_Status__c)
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  group_by(missing_report) %>% 
+  # See how many reports of each type are missing with summarize():
+  summarize(n = n()) %>% 
+  rowid_to_column("report_id") %>% 
+  select(-n) %>% 
+  right_join(missing_budgets_osa, by = "missing_report")
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  spread(report_id, missing_report)
+
+missing_budgets_osa[missing_budgets_osa == ""] <-  NA
+
+# Shift reports to the left:
+missing_budgets_osa2 <- 
+  as.data.frame(
+    t(
+      apply(
+        missing_budgets_osa, 
+        1, 
+        function(x){return(c(x[!is.na(x)], x[is.na(x)]))})))
+
+colnames(missing_budgets_osa2) <- colnames(missing_budgets_osa)
+
+missing_budgets_osa <- missing_budgets_osa2
+
+rm(report_year, reports__c, missing_reports_osa2)
+
+for (j in 2:length(missing_budgets_osa)) {
+  
+  colnames(missing_budgets_osa)[j] <- paste("Auditor ", j - 1)
+  
+}
+rm(j)
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  remove_empty("cols")
+
+missing_budgets_osa$entity_name <- 
+  as.character(missing_budgets_osa$entity_name)
+
 ```
 
 ## Missing Transparency Reports
@@ -488,6 +583,10 @@ report_send_notices_transp <-
   contact_info %>% 
   right_join(missing_reports_transp, by = "entity_name")
 
+report_send_notices_osa_budgets <- 
+  contact_info %>% 
+  right_join(missing_budgets_osa, by = "entity_name")
+
 # While revising this program, I discovered a few duplicate entities. I think 
 # my revisions corrected the problem, but I'll keep the code below for now.
 duplicate_osa <- duplicated(report_send_notices_osa$entity_name)
@@ -503,6 +602,9 @@ report_send_notices_transp <-
 rm(missing_reports_osa, missing_reports_transp, missing_reports, 
    contact_info, duplicate)
 
+duplicate_budgets <- duplicated(report_send_notices_osa_budgets$entity_name)
+report_send_notices_osa_budgets <- 
+  report_send_notices_osa_budgets[!duplicate_budgets, ]
 # Export reports:
 
 file_path <-
@@ -521,6 +623,13 @@ if (notice_type == "60_day_notice") {
       path = paste0(file_path, Sys.Date(), 
                     " Mail Merge 60-day Notice Transp.csv"),
       na = "")
+  
+    report_send_notices_osa_budgets %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), 
+                    " Mail Merge 60-day Notice OSA - Budgets.csv"),
+      na = "")
+  
   
 } else if (notice_type == "hold_or_suspend") {
   

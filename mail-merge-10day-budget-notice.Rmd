@@ -1,0 +1,402 @@
+---
+title: "mail-merge-10day-budget-notice"
+author: "Alexander Nielson"
+date: "2/5/2020"
+output: html_document
+---
+# Program Description
+
+**Purpose**
+
+Compile and format the information needed to send the 10-day Warning postcards to local governments that are non-compliant with OSA or State Treasurer budget requirements.
+
+*This R program is based on Michael Jensens "MailMerge.RMD" which can be found at his github or in the localgov folder. * 
+
+**Input(s)**
+
+```{r}
+dsn_sf <- "Salesforce"
+
+# Select the appropriate notice type:
+notice_type <- "ten_day_budget_notice"
+```
+
+**Output(s)**
+
+A .csv file containing a record for each entity that is missing a required Transparent Utah report, with the following fields:
+
+* Entity name
+* Entity CFO name
+* Entity CAO name
+* Entity address information
+* A field for each report the entity is missing
+
+A .csv file containing a record for each entity that is missing a required budget report, with the following fields:
+
+* Entity name
+* Entity CFO name
+* Entity CAO name
+* Entity address information
+* Tax status
+* Finet code
+* A field for each budget report the entity is missing
+
+**Comments**
+
+The Missing D & I Report comes from the Office of the State Treasurer. Though they have an instance of Salesforce, they don't actively use it (as of 2019-09-20). I can't, therefore, pull the missing reports from Salesforce and integrate them in the report I create here. Right now, our workflow consists of someone from the Treasurer's Office emailing us a list of entities that are missing reports, which we then manually enter into this report.
+
+# Libraries and Data Sources
+
+```{r}
+library(data.table)
+library(janitor)
+library(magrittr)
+library(odbc)
+library(readxl)
+library(splitstackshape)
+library(svDialogs)
+library(tidyverse)
+
+odbc_salesforce <- dbConnect(odbc::odbc(), dsn_sf)
+
+rm(dsn_sf)
+```
+
+# Function Definitions
+
+## Argument Definitions
+
+```{r, eval=FALSE}
+  # Arguments:
+  #  address_one (char): The portion of the complete address corresponding to 
+  #    street_one.
+  #  address_two (char): The portion of the complete address corresponding to 
+  #    street_two.
+  #  street_one (char): The default street address.
+  #  street_two (char): The street address to compare against.
+```
+
+## find_an_address()
+
+```{r}
+find_an_address <- function(street_one, street_two, address_one, address_two) {
+  # Compare two street addresses and select the corresponding address 
+  # information for the street address that is not NA.
+  #
+  # Arguments:
+  #  street_one (char): The default street address.
+  #  street_two (char): The street address to compare against.
+  #  address_one (char): The portion of the complete address corresponding to 
+  #    street_one.
+  #  address_two (char): The portion of the complete address corresponding to 
+  #    street_two.
+  #
+  # Returns:
+  #   Character.
+  
+  if (is.na(street_one) && !is.na(street_two)) {
+    
+    address_two
+  
+  } else {address_one}
+}
+```
+
+# Execution
+
+## Salesforce - Contact Information
+
+```{r}
+account <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      a.Id                         AS sf_id,
+      a.Name                       AS entity_name, 
+      r.Name                       AS record_type,
+      a.Is_Solely_Fee_Assessing__c AS non_taxing_entity,
+      a.ShippingStreet, a.ShippingCity, a.ShippingState, a.ShippingPostalCode,
+      a.BillingStreet, a.BillingCity, a.BillingState, a.BillingPostalCode,
+      a.Mailing_county__c          AS mailing_county,
+      a2.Name                      AS tax_holding_county,
+      a.FINET_Vendor_Code__c       AS finet_code
+    FROM Account AS a
+    LEFT JOIN RecordType AS r
+    ON a.RecordTypeId = r.Id
+    LEFT JOIN Account AS a2
+    ON a.Tax_Holding_County__c = a2.Id
+    WHERE a.IsDeleted = FALSE
+    AND a.Entity_Status__c NOT IN ('Inactive', 'Dissolved')
+    AND a.Name <> 'test city 2'
+    AND a.RecordTypeId IN (
+      SELECT id
+      FROM RecordType
+      WHERE Name IN (
+        'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+        'County', 'District Health', 'Housing', 
+        'Independent/Quasi State Entity', 'Interlocal', 
+        'Local and Special Service District', 'Mental Health', 'Non Profits',
+        'Redevelopment Agency/Project Area', 
+        'School District or Charter School', 'Town'))") %>% 
+  mutate(street = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingStreet),
+                      address_two = as.list(BillingStreet)),
+                    find_an_address),
+         city   = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingCity),
+                      address_two = as.list(BillingCity)),
+                    find_an_address),    
+         state   = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingState),
+                      address_two = as.list(BillingState)),
+                    find_an_address),         
+         zip     = pmap_chr(
+                    list(
+                      street_one  = as.list(ShippingStreet),
+                      street_two  = as.list(BillingStreet),
+                      address_one = as.list(ShippingPostalCode),
+                      address_two = as.list(BillingPostalCode)),
+                    find_an_address)) %>% 
+  select(sf_id, entity_name, record_type, non_taxing_entity, 
+         street, city, state, zip, mailing_county, tax_holding_county,
+         finet_code)
+
+# CFOs and CAOs sometimes have an address that is different from the entity's
+# address. Though it would be more convenient for the CFO and CAO to receive the 
+# notice at the address specific to their contact information, I decided to 
+# send notices to the entity address. Given that the CFO and CAO can change 
+# without notifying OSA, it seems that sending the notice to the entity's 
+# address is the best way to make sure that someone within the entity 
+# organization will see it.
+
+cfo <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name            AS entity_name, 
+      c.Name            AS cfo_name
+      -- MailingStreet     AS cfo_street, 
+      -- MailingCity       AS cfo_city, 
+      -- MailingState      AS cfo_state, 
+      -- MailingPostalCode AS cfo_zipcode
+    FROM Contact AS c
+    JOIN Account AS a
+    ON c.AccountId = a.Id
+    WHERE c.IsDeleted = FALSE
+    AND c.IsDeactivated__c = FALSE
+    AND Role__c = 'CFO'")
+
+cao <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name            AS entity_name, 
+      c.Name            AS cao_name
+      -- MailingStreet     AS cao_street, 
+      -- MailingCity       AS cao_city, 
+      -- MailingState      AS cao_state, 
+      -- MailingPostalCode AS cao_zipcode
+    FROM Contact AS c
+    JOIN Account AS a
+    ON c.AccountId = a.Id
+    WHERE c.IsDeleted = FALSE
+    AND c.IsDeactivated__c = FALSE
+    AND Role__c = 'CAO'")
+
+# Check for entities with multiple CFOs:
+multiple_cfos <- 
+  cfo[duplicated(cfo$entity_name), "entity_name"] %>% 
+  tibble(has_multiple_cfos = .) %>% 
+  distinct(has_multiple_cfos) %>% 
+  arrange(has_multiple_cfos)
+
+multiple_caos <- 
+  cao[duplicated(cao$entity_name), "entity_name"] %>% 
+  tibble(has_multiple_caos = .) %>% 
+  distinct(has_multiple_caos) %>% 
+  arrange(has_multiple_caos)
+
+if (nrow(multiple_cfos) > 0 || nrow(multiple_caos) > 0) {
+  
+  dlg_message(
+    "Salesforce has at least one entity with multiple CFOs or CAOs.
+    See report of entities with multiple cfos or caos.
+    This program will select one of the names to send a notice to.")
+  
+  file_path <-
+    "S:/Localgov/Database/Salesforce/Reports/"
+  
+  multiple_cfos %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Entities with Multiple CFOs.csv"),
+      na = "")
+  
+  multiple_caos %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), " Entities with Multiple CAOs.csv"),
+      na = "")
+  
+  cfo <- 
+    cfo %>% 
+    data.table() %>% 
+    unique(by = "entity_name")
+
+  cao <- 
+    cao %>% 
+    data.table() %>% 
+    unique(by = "entity_name")
+}
+
+contact_info <- 
+  account %>% 
+  left_join(cfo, by = "entity_name") %>% 
+  left_join(cao, by = "entity_name") %>% 
+  mutate(cfo_name = if_else(is.na(cfo_name), "CFO", cfo_name),
+         cao_name = if_else(is.na(cao_name), "CAO", cao_name)) %>% 
+  select(entity_name, non_taxing_entity, cfo_name, cao_name, street, city, 
+         state, zip, record_type, sf_id, mailing_county, tax_holding_county,
+         finet_code) %>% 
+  arrange(entity_name)
+
+rm(cao, cfo, account)
+
+if (exists("file_path")) rm(file_path)
+```
+
+## Salesforce - Missing Budgets
+```{r}
+report_budget_year <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT 
+      Name AS report_budget_year, 
+      Id
+    FROM Report_Year__c
+    WHERE IsDeleted = FALSE
+    AND Delinquent_Budget__c > 0")
+
+reports__c <- 
+  dbGetQuery(
+    odbc_salesforce,
+    "SELECT
+      a.Name AS entity_name, 
+      Report_Type__c AS missing_report,
+      Report_Status__c
+    FROM Reports__c AS r
+    LEFT JOIN Account AS a
+    ON r.Account__c = a.Id
+    WHERE r.IsDeleted = FALSE
+    AND Delinquent__c = TRUE
+    AND r.Report_Type__c IN ('Approved Budget')
+    AND r.Entity_Type__c IN (
+      SELECT Name
+      FROM RecordType
+      WHERE Name IN (
+        'AOG', 'City', 'Community Reinvestment Agency', 'Conservation District',
+        'County', 'District Health', 'Housing', 'Independent/Quasi State Entity',
+        'Institution of Higher Education', 'Interlocal', 
+        'Local and Special Service District', 'Mental Health', 'Non Profits', 
+        'Redevelopment Agency/Project Area', 'School District or Charter School',
+        'Town'))
+    AND a.Entity_Status__c IN (
+      'Current',
+      'Delinquent',
+      'Suspended',
+      'On hold')")
+
+missing_budgets_osa <- 
+  reports__c %>% 
+  left_join(report_budget_year, by = c("Report_Status__c" = "Id")) %>% 
+  unite(missing_report, report_budget_year, missing_report, sep = " ") %>% 
+  select(-Report_Status__c)
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  group_by(missing_report) %>% 
+  # See how many reports of each type are missing with summarize():
+  summarize(n = n()) %>% 
+  rowid_to_column("report_id") %>% 
+  select(-n) %>% 
+  right_join(missing_budgets_osa, by = "missing_report")
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  spread(report_id, missing_report)
+
+missing_budgets_osa[missing_budgets_osa == ""] <-  NA
+
+# Shift reports to the left:
+missing_budgets_osa2 <- 
+  as.data.frame(
+    t(
+      apply(
+        missing_budgets_osa, 
+        1, 
+        function(x){return(c(x[!is.na(x)], x[is.na(x)]))})))
+
+colnames(missing_budgets_osa2) <- colnames(missing_budgets_osa)
+
+missing_budgets_osa <- missing_budgets_osa2
+
+rm(report_budget_year, reports__c, missing_budgets_osa2)
+
+for (j in 2:length(missing_budgets_osa)) {
+  
+  colnames(missing_budgets_osa)[j] <- paste("Auditor ", j - 1)
+  
+}
+rm(j)
+
+missing_budgets_osa <- 
+  missing_budgets_osa %>% 
+  remove_empty("cols")
+
+missing_budgets_osa$entity_name <- 
+  as.character(missing_budgets_osa$entity_name)
+
+```
+
+
+## Merge Missing Budget report with Contact Information
+
+```{r}
+#join the report with the contact_info table
+report_send_budget_notices_osa <- 
+  contact_info %>% 
+  right_join(missing_budgets_osa, by = "entity_name")
+
+# get rid of any potential duplicates
+
+duplicate_budgets <- duplicated(report_send_budget_notices_osa$entity_name)
+report_send_budget_notices_osa <- 
+  report_send_budget_notices_osa[!duplicate_budgets, ]
+
+#Export reports:
+
+file_path <-
+  "S:/Localgov/LG Compliance/Transparency Compliance/Budget Reports/"
+
+if (notice_type == "ten_day_budget_notice") {
+  
+    report_send_budget_notices_osa %>% 
+    write_csv(
+      path = paste0(file_path, Sys.Date(), 
+                    "_mail_merge_10_day_budget_notice_osa.csv"),
+      na = "")
+} 
+```
+
+# DBMS Disconnection
+
+```{r}
+dbDisconnect(odbc_salesforce)
+```
