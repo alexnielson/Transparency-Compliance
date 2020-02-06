@@ -19,6 +19,9 @@ dsn_sf <- "Salesforce"
 
 # Select the appropriate notice type:
 notice_type <- "ten_day_budget_notice"
+budget_schedule <- 
+#  "fiscal_year"
+"traditional_year"
 ```
 
 **Output(s)**
@@ -101,6 +104,12 @@ find_an_address <- function(street_one, street_two, address_one, address_two) {
   } else {address_one}
 }
 ```
+
+##check_fiscal_year()
+```{r}
+
+```
+
 
 # Execution
 
@@ -279,10 +288,15 @@ report_budget_year <-
     odbc_salesforce,
     "SELECT 
       Name AS report_budget_year, 
+      Fiscal_Year_Ends__C as fy_end,
       Id
     FROM Report_Year__c
     WHERE IsDeleted = FALSE
     AND Delinquent_Budget__c > 0")
+
+report_budget_year <- report_budget_year %>% 
+  mutate(fy_end_month = month(fy_end))
+
 
 reports__c <- 
   dbGetQuery(
@@ -319,6 +333,25 @@ missing_budgets_osa <-
   unite(missing_report, report_budget_year, missing_report, sep = " ") %>% 
   select(-Report_Status__c)
 
+# The following if statemets are to stop "on hold" or naughty entities from
+# getting double reported. Its not a big deal, but essentially it saves brooke a
+# few minutes. The idea is that entities may be on either a fiscal year budget
+# schedule or they follow the traditional calander year. We do not want to
+# report people on the wrong fiscal year, so this code seems to fix that. Though
+# this mail merge is still is testing/beta.
+
+if(budget_schedule == "traditional_year"){
+  missing_budgets_osa<- missing_budgets_osa %>% 
+    filter(fy_end_month==12) %>% 
+    select(-fy_end_month, -fy_end)
+}
+
+if(budget_schedule == "fiscal_year"){
+  missing_budgets_osa<- missing_budgets_osa %>% 
+    filter(fy_end_month==6) %>% 
+    select(-fy_end_month, -fy_end)
+}
+
 missing_budgets_osa <- 
   missing_budgets_osa %>% 
   group_by(missing_report) %>% 
@@ -348,6 +381,8 @@ colnames(missing_budgets_osa2) <- colnames(missing_budgets_osa)
 missing_budgets_osa <- missing_budgets_osa2
 
 rm(report_budget_year, reports__c, missing_budgets_osa2)
+
+
 
 for (j in 2:length(missing_budgets_osa)) {
   

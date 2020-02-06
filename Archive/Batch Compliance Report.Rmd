@@ -467,7 +467,7 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
       entity_name         = name,
       entity_id           = sf_id,
       fiscal_year         = map(batch_id, query_fiscal_year)) %>%
-    unnest(upload_date, begin_txn_date, end_txn_date, transaction_type,
+    unnest_legacy(upload_date, begin_txn_date, end_txn_date, transaction_type,
            username, uploaded_file, file_record_count, file_total_amount) %>%
     unnest(fiscal_year)
 }
