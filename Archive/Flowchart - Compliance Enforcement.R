@@ -277,3 +277,4 @@ straightarrow(from = pos[81, ] + c(0.08, 0), to = pos[83, ] + c(0.15, 0),
 bentarrow(from = pos[73, ] + c(0, -0.025), to = pos[83, ], 
           lwd = 1, arr.pos = 0.47,
           segment = c(0, 0.47), arr.length = 0.3, path = "V")
+

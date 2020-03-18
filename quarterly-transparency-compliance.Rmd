@@ -1,9 +1,10 @@
 ---
-title: "Transparency Compliance Report"
-author: "Michael Jensen"
-date: "February 2019"
-output: html_notebook
+title: "quarterly-compliance-report"
+author: "Alexander Nielson"
+date: "2/19/2020"
+output: html_document
 ---
+
 # Program Description
 
 **Purpose**
@@ -548,6 +549,8 @@ missing_reports <- function(t_id, begin_date, begin_fy, sf_id, exempt_list, trxn
   # Value:
   #   Character.
 
+  print(paste("missing_reports - transaction_id: ",t_id))
+  
   reported_reports <-
     query_batch_ids(t_id) %>%                                                   
     map(query_posting_dates, begin_fy, trxn_type) %>%                           
@@ -589,36 +592,38 @@ missing_reports <- function(t_id, begin_date, begin_fy, sf_id, exempt_list, trxn
 ```
 
 ```{r}
-
-temp_data<- report
-
-test_missing_rev <-
-  missing_reports(t_id = report$t_id,
-                  begin_date = report$begin_report_er,
-                  begin_fy = report$begin_fy,
-                  sf_id = report$id,
-                  trxn_type = 2,
-                  exempt_list = sf_data$exemptions)
-
-test_reported_reports <-
-    query_batch_ids( report$t_id) %>%
-    map(query_posting_dates, report$begin_fy, trxn_type=2) %>%
-    combine() %>%
-    convert_to_fyyy.q(report$begin_fy) %>%
-    unique()
-
-
-test_required_reports <-
-      required_fyyy.q(begin_date= report$begin_report_er,
-                      begin_fy= report$begin_fy,
-                      sf_id= report$id,
-                      trxn_type = 2,
-                      exempt_list = sf_data$exemptions)
-
-
- missing_report <- setdiff(test_required_reports, test_reported_reports)
-
- temp <- convert_to_yyyy_mmm_mmm(missing_report, report$begin_fy)
+# 
+# temp_data<- report
+# 
+# temp_batch_ids<- query_batch_ids( 223)
+# 
+# test_missing_rev <-
+#   missing_reports(t_id = 223,
+#                   begin_date = report$begin_report_er ,
+#                   begin_fy = report$begin_fy,
+#                   sf_id = report$id,
+#                   trxn_type = 2,
+#                   exempt_list = sf_data$exemptions)
+# 
+# test_reported_reports <-
+#     query_batch_ids( report$t_id) %>%
+#     map(query_posting_dates, report$begin_fy, trxn_type=2) #%>%
+#     combine() %>%
+#     convert_to_fyyy.q(report$begin_fy) %>%
+#     unique()
+# 
+# 
+# test_required_reports <-
+#       required_fyyy.q(begin_date= report$begin_report_er,
+#                       begin_fy= report$begin_fy,
+#                       sf_id= report$id,
+#                       trxn_type = 2,
+#                       exempt_list = sf_data$exemptions)
+# 
+# 
+#  missing_report <- setdiff(test_required_reports, test_reported_reports)
+# 
+#  temp <- convert_to_yyyy_mmm_mmm(missing_report, report$begin_fy)
 
 ```
 
@@ -838,10 +843,52 @@ query_posting_dates <- function(batch_id, begin_fy, trxn_type) {
         fiscal_year = as.numeric(fiscal_year),
         fyyy.q = posting_date %>% convert_to_fyyy.q(begin_fy) %>% floor()) %>% 
       filter(fiscal_year == fyyy.q) %>% 
+      ###ALEX  GOT RID OF FILTER TO FIX THE DAGGET CD ERROR
+
+      
       .[["posting_date"]] %>% 
       as_vector()
   }
 }
+```
+
+```{r}
+# query_posting_dates(batch_id = 61261,
+#                     begin_fy= report$begin_fy,
+#                     trxn_type =2)
+```
+
+```{r}
+# 
+# batch_id = 63773
+# begin_fy= report$begin_fy
+# trxn_type =1
+# 
+# temp<- dbGetQuery(
+#       odbc_aws,
+#       paste("
+#             SELECT DISTINCT posting_date, fiscal_year
+#             FROM transaction
+#             WHERE batch_id = ", batch_id, "
+#             AND type = ", trxn_type, "
+#             AND fiscal_year > 2013
+#             AND (
+#               YEAR(posting_date) = fiscal_year OR
+#               YEAR(posting_date) + 1 = fiscal_year)")) %>% 
+#       as_tibble() %>% 
+#       mutate(
+#         fiscal_year = as.numeric(fiscal_year),
+#         fyyy = posting_date %>% convert_to_fyyy.q(begin_fy) %>% floor()) %>% 
+#       filter(fiscal_year == fyyy || fiscal_year == fyyy+1 || fiscal_year == fyyy-1)# %>% 
+#       .[["posting_date"]] %>% 
+#       as_vector()
+# 
+#       ### DEBUGG NOTES: 
+#       ### I think that we can change the fiscal_year ==fyyy to include a standard deviation of 1 and the code should still run ok. It might be slightly slower, but it should not be much longer. this might solve the problem for the Dagget CD. We should test this out tomorrow. 
+#       
+# 
+# temp_fyy.q <- convert_to_fyyy.q(date("2019-10-09"), begin_fy)
+
 ```
 
 ## required_fyyy
@@ -1184,7 +1231,8 @@ sf_exemptions <-
             'Current', 
             'On hold', 
             'Delinquent', 
-            'Suspended')")) %>% 
+            'Suspended')
+          AND a.Name != 'test city 2'")) %>% 
   as_tibble()
 
 # Query the initial report:

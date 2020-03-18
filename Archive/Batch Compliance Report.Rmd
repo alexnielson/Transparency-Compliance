@@ -389,6 +389,11 @@ check_account_number <- function(batch_id, govt_type, ucoa) {
 }
 ```
 
+```{r}
+check_account_number <- function(batch_id, govt_type, ucoa)
+```
+
+
 ## generate_report
 
 ```{r}
@@ -441,14 +446,14 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
   }
   
   report <-
-    batch_ids$batch_id %>% 
-    map(check_account_number, govt_type, ucoa) %>% 
-    bind_rows()   %>% 
+    batch_ids$batch_id %>%
+    map(check_account_number, govt_type, ucoa) %>%
+    bind_rows()   %>%
     mutate(invalid_date = map(batch_id, check_posting_date, begin_fy),
            entity_name  = !!name,
-           sf_id        = !!sf_id) %>% 
+           sf_id        = !!sf_id) %>%
     unnest(invalid_date)
-  
+
   report <- 
     report %>% 
     mutate(
@@ -472,6 +477,44 @@ generate_report <- function(t_id, begin_fy, govt_type, name, sf_id, ucoa) {
     unnest(fiscal_year)
 }
 ```
+
+```{r}
+
+temp <- 
+  list(
+    t_id      = as.list(sf_data$t_id),
+    begin_fy  = as.list(sf_data$begin_fy),
+    govt_type = as.list(sf_data$govt_type),
+    name      = as.list(sf_data$name),
+    sf_id     = as.list(sf_data$id))
+
+temp <- generate_report(t_id = "1107",
+                        begin_fy = as.POSIXct.Date(2017-07-01),
+                        govt_type = "City",
+                        name= "Ballard Town",
+                        sf_id = "0014100000rD0zMAAS",
+                        ucoa = ucoa)
+
+
+temp_batches <- 
+  list(
+    t_id      = list("1107", "383"),
+    begin_fy  = list(as.POSIXct.Date(2017-07-01),as.POSIXct.Date(2017-07-01)),
+    govt_type = list("City","City"),
+    name      = list("Ballard Town","Clearfield City"),
+    sf_id     = list("0014100000rD0zMAAS", "0014100000rD0zYAAS")) %>% 
+  pmap(generate_report, ucoa)
+
+temp_batches_1 <- temp_batches %>% pluck(2)
+```
+
+```{r}
+query_batch_ids(383)
+
+temp<- check_account_number(batch_id = 28189, govt_type = "City", ucoa = ucoa) 
+```
+
+
 
 ## query_batch_ids
 

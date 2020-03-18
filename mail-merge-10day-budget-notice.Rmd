@@ -10,7 +10,7 @@ output: html_document
 
 Compile and format the information needed to send the 10-day Warning postcards to local governments that are non-compliant with OSA or State Treasurer budget requirements.
 
-*This R program is based on Michael Jensens "MailMerge.RMD" which can be found at his github or in the localgov folder. * 
+*This a modified R script based on Michael Jensens "MailMerge.RMD" which can be found at his github or in the Archive folder. * 
 
 **Input(s)**
 
@@ -46,7 +46,7 @@ A .csv file containing a record for each entity that is missing a required budge
 
 **Comments**
 
-The Missing D & I Report comes from the Office of the State Treasurer. Though they have an instance of Salesforce, they don't actively use it (as of 2019-09-20). I can't, therefore, pull the missing reports from Salesforce and integrate them in the report I create here. Right now, our workflow consists of someone from the Treasurer's Office emailing us a list of entities that are missing reports, which we then manually enter into this report.
+
 
 # Libraries and Data Sources
 
